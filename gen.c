@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include "hcc.h"
 
+static const char *REGS[] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
+
 static void emitf_noindent(char *fmt, ...);
 static void emitf(char *fmt, ...);
 static void emit_push(const char *reg);
@@ -68,11 +70,60 @@ static void emit_binary_op_expression(node_t *node) {
   emit_pop("rcx");
 }
 
+static void emit_call(node_t *node) {
+  int i;
+  vector_t *iargs = vector_new();
+  vector_t *rargs = vector_new();
+  for (i = 0; i < node->args->size; i++) {
+    node_t *n = (node_t *)node->args->data[i];
+    vector_push(iargs->size < 6 ? iargs : rargs, n);
+  }
+  // store registers
+  for (i = 0; i < iargs->size; i++) {
+    emit_push(REGS[i]);
+  }
+  // build arguments
+  for (i = rargs->size - 1; i >= 0; i--) {
+    node_t *n = (node_t *)rargs->data[i];
+    emit_expression(n);
+    emit_push("rax");
+  }
+  for (i = 0; i < iargs->size; i++) {
+    node_t *n = (node_t *)iargs->data[i];
+    emit_expression(n);
+    emitf("mov %%rax, %%%s", REGS[i]);
+  }
+  // call function
+  emitf("mov $0, %%eax");
+  emitf("call %s", node->func->identifier);
+  // restore registers
+  int rsize = rargs->size * 8;
+  if (rsize > 0) {
+    emitf("add $%d, %%rsp", rsize);
+  }
+  for (i = iargs->size - 1; i >= 0; i--) {
+    emit_pop(REGS[i]);
+  }
+
+  vector_free(iargs);
+  vector_free(rargs);
+}
+
 static void emit_expression(node_t *node) {
-  if (node->kind == NODE_KIND_BINARY_OP) {
-    emit_binary_op_expression(node);
-  } else if (node->kind == NODE_KIND_LITERAL_INT) {
-    emit_int(node);
+  for (; node; node = node->next) {
+    switch (node->kind) {
+    case NODE_KIND_BINARY_OP:
+      emit_binary_op_expression(node);
+      break;
+    case NODE_KIND_LITERAL_INT:
+      emit_int(node);
+      break;
+    case NODE_KIND_CALL:
+      emit_call(node);
+      break;
+    default:
+      errorf("unknown expression node: %d", node->kind);
+    }
   }
 }
 
