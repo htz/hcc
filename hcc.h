@@ -7,6 +7,13 @@
 #include <stdio.h>
 #include <stdnoreturn.h>
 
+#define assert(expr)                                                 \
+  do {                                                               \
+    if (!(expr)) {                                                   \
+      errorf("%s:%d: Assertion failed: " #expr, __FILE__, __LINE__); \
+    }                                                                \
+  } while (0)
+
 typedef struct vector vector_t;
 struct vector {
   void **data;
@@ -24,6 +31,7 @@ struct string {
 enum {
   TOKEN_KIND_INT,
   TOKEN_KIND_KEYWORD,
+  TOKEN_KIND_IDENTIFIER,
   TOKEN_KIND_EOF,
   TOKEN_KIND_UNKNOWN,
 };
@@ -36,6 +44,7 @@ struct token {
   union {
     int ival;
     int keyword;
+    char *identifier;
   };
 };
 
@@ -51,20 +60,29 @@ struct lex {
 };
 
 enum {
+  NODE_KIND_IDENTIFIER,
   NODE_KIND_LITERAL_INT,
   NODE_KIND_BINARY_OP,
+  NODE_KIND_CALL,
 };
 
 typedef struct node node_t;
 struct node {
   int kind;
+  node_t *next;
   union {
+    char *identifier;
     int ival;
     // Binary operator
     struct {
       int op;
       node_t *left;
       node_t *right;
+    };
+    // Function call
+    struct {
+      node_t *func;
+      vector_t *args;
     };
   };
 };
@@ -104,8 +122,10 @@ token_t *lex_next_keyword_is(lex_t *lex, int k);
 token_t *lex_expect_keyword_is(lex_t *lex, int k);
 
 // node.c
+node_t *node_new_identifier(char *identifier);
 node_t *node_new_int(int ival);
 node_t *node_new_binary_op(int op, node_t *left, node_t *right);
+node_t *node_new_call(node_t *func, vector_t *args);
 void node_free(node_t *node);
 void node_debug(node_t *node);
 

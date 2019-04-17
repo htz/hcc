@@ -6,6 +6,7 @@
 static const char *token_names[] = {
   "INT",
   "KEYWORD",
+  "IDENTIFIER",
   "EOF",
   "UNKNOWN",
 };
@@ -20,6 +21,11 @@ token_t *token_new(lex_t *lex, int kind) {
 }
 
 void token_free(token_t *token) {
+  switch (token->kind) {
+  case TOKEN_KIND_IDENTIFIER:
+    free(token->identifier);
+    break;
+  }
   free(token);
 }
 

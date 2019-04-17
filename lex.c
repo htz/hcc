@@ -87,6 +87,9 @@ static char get_char(lex_t *lex) {
 }
 
 static void unget_char(lex_t *lex, char c) {
+  if (c == '\0') {
+    return;
+  }
   if (c == '\n') {
     lex->line--;
     lex->column = 1;
@@ -117,6 +120,24 @@ static token_t *new_keyword(lex_t *lex, int k) {
   return token;
 }
 
+static token_t *read_identifier(lex_t *lex) {
+  string_t *ident = string_new();
+  for (;;) {
+    char c = get_char(lex);
+    if (isalnum(c) || c == '_') {
+      string_add(ident, c);
+    } else {
+      unget_char(lex, c);
+      break;
+    }
+  }
+  assert(ident->size > 0);
+  token_t *token = token_new(lex, TOKEN_KIND_IDENTIFIER);
+  token->identifier = strdup(ident->buf);
+  string_free(ident);
+  return token;
+}
+
 static token_t *read_unknown(lex_t *lex, char c) {
   token_t *token = token_new(lex, TOKEN_KIND_UNKNOWN);
   token->keyword = c;
@@ -136,9 +157,13 @@ token_t *lex_get_token(lex_t *lex) {
     unget_char(lex, c);
     return read_number(lex);
   }
+  if (isalpha(c) || c == '_') {
+    unget_char(lex, c);
+    return read_identifier(lex);
+  }
   switch (c) {
   case '+': case '-': case '*': case '/': case '%':
-  case '(': case ')':
+  case '(': case ')': case ',': case ';':
     return new_keyword(lex, c);
   case '\0':
     return token_new(lex, TOKEN_KIND_EOF);

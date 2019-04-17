@@ -45,29 +45,39 @@ function testfail {
 
 make -s hcc
 
-testast '1' '1'
-testast '(+ (- (+ 1 2) 3) 4)' '1+2-3+4'
-testast '(+ (+ 1 (* 2 3)) 4)' '1+2*3+4'
-testast '(+ (* 1 2) (* 3 4))' '1*2+3*4'
-testast '(+ (/ 4 2) (/ 6 3))' '4/2+6/3'
-testast '(/ (/ 24 2) 4)' '24/2/4'
-testast '(+ (* (+ 1 2) 3) 4)' '(1+2)*3+4'
-testast '(% (+ (+ (+ 1 2) 3) 4) 3)' '(1+2+3+4)%3'
+testast '1' '1;'
+testast '1, 2' '1,2;'
+testast '(+ (- (+ 1 2) 3) 4)' '1+2-3+4;'
+testast '(+ (+ 1 (* 2 3)) 4)' '1+2*3+4;'
+testast '(+ (* 1 2) (* 3 4))' '1*2+3*4;'
+testast '(+ (/ 4 2) (/ 6 3))' '4/2+6/3;'
+testast '(/ (/ 24 2) 4)' '24/2/4;'
+testast '(+ (* (+ 1 2) 3) 4)' '(1+2)*3+4;'
+testast '(% (+ (+ (+ 1 2) 3) 4) 3)' '(1+2+3+4)%3;'
 
-test 0 0
+testast '(a)' 'a();'
+testast '(a b c d e f g)' 'a(b,c,d,e,f,g);'
 
-test 3 '1+2'
-test 3 '1 + 2'
-test 10 '1+2+3+4'
-test 11 '1+2*3+4'
-test 14 '1*2+3*4'
-test 4 '4/2+6/3'
-test 3 '24/2/4'
-test 13 '(1+2)*3+4'
-test 1 '(1+2+3+4)%3'
+test 0 '0;'
 
-testfail '0abc'
-testfail '1+'
-testfail '(1'
+test 3 '1+2;'
+test 3 '1 + 2;'
+test 10 '1+2+3+4;'
+test 11 '1+2*3+4;'
+test 14 '1*2+3*4;'
+test 4 '4/2+6/3;'
+test 3 '24/2/4;'
+test 13 '(1+2)*3+4;'
+test 1 '(1+2+3+4)%3;'
+
+test 25 'sum2(20, 5);'
+test 55 'sum10(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);'
+test 55 'sum2(1, sum2(2, sum2(3, sum2(4, sum2(5, sum2(6, sum2(7, sum2(8, sum2(9, 10)))))))));'
+
+testfail '0abc;'
+testfail '1+;'
+testfail '(1;'
+testfail '1'
+testfail 'a(1;'
 
 echo "All tests passed"
