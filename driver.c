@@ -1,9 +1,10 @@
+// Copyright 2019 @htz. Released under the MIT license.
+
 #include <stdio.h>
 
 extern int mymain(void);
 
 int main(int argc, char **argv) {
-  int val = mymain();
-  printf("%d\n", val);
+  printf("%d\n", mymain());
   return 0;
 }
