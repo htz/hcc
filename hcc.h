@@ -30,6 +30,7 @@ struct string {
 
 enum {
   TOKEN_KIND_INT,
+  TOKEN_KIND_STRING,
   TOKEN_KIND_KEYWORD,
   TOKEN_KIND_IDENTIFIER,
   TOKEN_KIND_EOF,
@@ -43,6 +44,7 @@ struct token {
   int column;
   union {
     int ival;
+    string_t *sval;
     int keyword;
     char *identifier;
   };
@@ -60,8 +62,10 @@ struct lex {
 };
 
 enum {
+  NODE_KIND_NOP,
   NODE_KIND_IDENTIFIER,
   NODE_KIND_LITERAL_INT,
+  NODE_KIND_LITERAL_STRING,
   NODE_KIND_BINARY_OP,
   NODE_KIND_CALL,
 };
@@ -73,6 +77,11 @@ struct node {
   union {
     char *identifier;
     int ival;
+    // String literal
+    struct {
+      string_t *sval;
+      int sid;
+    };
     // Binary operator
     struct {
       int op;
@@ -85,6 +94,14 @@ struct node {
       vector_t *args;
     };
   };
+};
+
+typedef struct parse parse_t;
+struct parse {
+  lex_t *lex;
+  vector_t *statements;
+  vector_t *data;
+  vector_t *nodes;
 };
 
 // vector.c
@@ -100,6 +117,8 @@ void string_free(string_t *str);
 void string_add(string_t *str, char c);
 void string_append(string_t *str, char *s);
 void string_appendf(string_t *str, char *fmt, ...);
+string_t *string_dup(string_t *str0);
+void string_print_quote(string_t *str, FILE *out);
 
 // util.c
 int max(int a, int b);
@@ -122,18 +141,21 @@ token_t *lex_next_keyword_is(lex_t *lex, int k);
 token_t *lex_expect_keyword_is(lex_t *lex, int k);
 
 // node.c
-node_t *node_new_identifier(char *identifier);
-node_t *node_new_int(int ival);
-node_t *node_new_binary_op(int op, node_t *left, node_t *right);
-node_t *node_new_call(node_t *func, vector_t *args);
+node_t *node_new_nop(parse_t *parse);
+node_t *node_new_identifier(parse_t *parse, char *identifier);
+node_t *node_new_int(parse_t *parse, int ival);
+node_t *node_new_string(parse_t *parse, string_t *sval, int sid);
+node_t *node_new_binary_op(parse_t *parse, int op, node_t *left, node_t *right);
+node_t *node_new_call(parse_t *parse, node_t *func, vector_t *args);
 void node_free(node_t *node);
 void node_debug(node_t *node);
 
 // parse.c
-node_t *parse_file(FILE *fp);
+void parse_free(parse_t *parse);
+parse_t *parse_file(FILE *fp);
 
 // gen.c
-void gen(node_t *node);
+void gen(parse_t *parse);
 
 // error.c
 noreturn void errorf(char *fmt, ...);

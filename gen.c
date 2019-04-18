@@ -11,6 +11,8 @@ static void emitf(char *fmt, ...);
 static void emit_push(const char *reg);
 static void emit_pop(const char *reg);
 static void emit_int(node_t *node);
+static void emit_string(node_t *node);
+static void emit_string_data(string_t *str);
 static void emit_binary_op_expression(node_t *node);
 static void emit_expression(node_t *node);
 
@@ -41,6 +43,16 @@ static void emit_pop(const char *reg) {
 
 static void emit_int(node_t *node) {
   emitf("mov $%d, %%rax", node->ival);
+}
+
+static void emit_string(node_t *node) {
+  emitf("lea .STR_%d(%%rip), %%rax", node->sid);
+}
+
+static void emit_string_data(string_t *str) {
+  fprintf(stdout, "\t.string \"");
+  string_print_quote(str, stdout);
+  fprintf(stdout, "\"\n");
 }
 
 static void emit_binary_op_expression(node_t *node) {
@@ -112,11 +124,16 @@ static void emit_call(node_t *node) {
 static void emit_expression(node_t *node) {
   for (; node; node = node->next) {
     switch (node->kind) {
+    case NODE_KIND_NOP:
+      break;
     case NODE_KIND_BINARY_OP:
       emit_binary_op_expression(node);
       break;
     case NODE_KIND_LITERAL_INT:
       emit_int(node);
+      break;
+    case NODE_KIND_LITERAL_STRING:
+      emit_string(node);
       break;
     case NODE_KIND_CALL:
       emit_call(node);
@@ -127,13 +144,29 @@ static void emit_expression(node_t *node) {
   }
 }
 
-void gen(node_t *node) {
+static void emit_data_section(parse_t *parse) {
+  vector_t *data = parse->data;
+  if (data->size == 0) {
+    return;
+  }
+  emitf(".data");
+  for (int i = 0; i < data->size; i++) {
+    node_t *n = (node_t *)data->data[i];
+    emitf_noindent(".STR_%d:", n->sid);
+    emit_string_data(n->sval);
+  }
+}
+
+void gen(parse_t *parse) {
+  emit_data_section(parse);
   emitf(".text");
   emitf_noindent(".global mymain");
   emitf_noindent("mymain:");
   emit_push("rbp");
   emitf("mov %%rsp, %%rbp");
-  emit_expression(node);
+  for (int i = 0; i < parse->statements->size; i++) {
+    emit_expression((node_t *)parse->statements->data[i]);
+  }
   emitf("leave");
   emitf("ret");
 }

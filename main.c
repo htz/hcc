@@ -23,13 +23,31 @@ int main(int argc, char **argv) {
     }
   }
 
-  node_t *node = parse_file(fp);
+  parse_t *parse = parse_file(fp);
   if (fats) {
-    node_debug(node);
+    for (int i = 0; i < parse->statements->size; i++) {
+      node_t *node = NULL;
+      int j;
+      for (j = i; j < parse->statements->size; j++) {
+        node_t *n = (node_t *)parse->statements->data[j];
+        if (n->kind != NODE_KIND_NOP) {
+          node = n;
+          break;
+        }
+      }
+      if (node == NULL) {
+        break;
+      }
+      if (i > 0) {
+        printf(";");
+      }
+      i = j;
+      node_debug(node);
+    }
   } else {
-    gen(node);
+    gen(parse);
   }
-  node_free(node);
+  parse_free(parse);
 
   return 0;
 }

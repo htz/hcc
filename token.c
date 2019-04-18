@@ -5,6 +5,7 @@
 
 static const char *token_names[] = {
   "INT",
+  "STRING",
   "KEYWORD",
   "IDENTIFIER",
   "EOF",
@@ -24,6 +25,9 @@ void token_free(token_t *token) {
   switch (token->kind) {
   case TOKEN_KIND_IDENTIFIER:
     free(token->identifier);
+    break;
+  case TOKEN_KIND_STRING:
+    string_free(token->sval);
     break;
   }
   free(token);
