@@ -71,3 +71,27 @@ void string_appendf(string_t *str, char *fmt, ...) {
     return;
   }
 }
+
+string_t *string_dup(string_t *str0) {
+  string_t *str = string_new_with_capacity(str0->capacity);
+  str->size = str0->size;
+  memcpy(str->buf, str0->buf, sizeof (char) * str->capacity);
+  return str;
+}
+
+void string_print_quote(string_t *str, FILE *out) {
+  for (char *p = str->buf; *p; p++) {
+    switch (*p) {
+    case '\a': fprintf(out, "\\a"); continue;
+    case '\b': fprintf(out, "\\b"); continue;
+    case '\f': fprintf(out, "\\f"); continue;
+    case '\n': fprintf(out, "\\n"); continue;
+    case '\r': fprintf(out, "\\r"); continue;
+    case '\t': fprintf(out, "\\t"); continue;
+    }
+    if (*p == '"' || *p == '\\') {
+      fprintf(out, "\\");
+    }
+    fprintf(out, "%c", *p);
+  }
+}

@@ -6,7 +6,7 @@ function compile {
     echo "Failed to compile $2"
     exit
   fi
-  gcc -o tmp.out driver.c tmp.s
+  gcc -no-pie -o tmp.out driver.c tmp.s
   if [ $? -ne 0 ]; then
     echo "GCC failed"
     exit
@@ -47,6 +47,12 @@ make -s hcc
 
 testast '1' '1;'
 testast '1, 2' '1,2;'
+testast '"abc"' '"abc";'
+testast '"a\\b\"c"' '"a\\b\"c";'
+testast '1;2' '1;2;'
+testast '' ';'
+testast '1' ';;1;;'
+
 testast '(+ (- (+ 1 2) 3) 4)' '1+2-3+4;'
 testast '(+ (+ 1 (* 2 3)) 4)' '1+2*3+4;'
 testast '(+ (* 1 2) (* 3 4))' '1*2+3*4;'
@@ -73,11 +79,14 @@ test 1 '(1+2+3+4)%3;'
 test 25 'sum2(20, 5);'
 test 55 'sum10(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);'
 test 55 'sum2(1, sum2(2, sum2(3, sum2(4, sum2(5, sum2(6, sum2(7, sum2(8, sum2(9, 10)))))))));'
+test a3 'printf("a");3;'
+test abc5 'printf("%s", "abc");5;'
 
 testfail '0abc;'
 testfail '1+;'
 testfail '(1;'
 testfail '1'
 testfail 'a(1;'
+testfail '1;2'
 
 echo "All tests passed"

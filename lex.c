@@ -114,6 +114,47 @@ static token_t *read_number(lex_t *lex) {
   return token;
 }
 
+static char read_escaped_char(lex_t *lex) {
+  char c = get_char(lex);
+  if (c == '\0') {
+    errorf("unterminated char or string");
+  }
+  switch (c) {
+  case '\'': case '"': case '?': case '\\':
+    return c;
+  case 'a': return '\a';
+  case 'b': return '\b';
+  case 'f': return '\f';
+  case 'n': return '\n';
+  case 'r': return '\r';
+  case 't': return '\t';
+  case 'v': return '\v';
+  case '0': return '\0';
+  }
+  warnf("unknown escape character: \\%c", c);
+  return c;
+}
+
+static token_t *read_string(lex_t *lex) {
+  string_t *val = string_new();
+  for (;;) {
+    char c = get_char(lex);
+    if (c == '"') {
+      break;
+    }
+    if (c == '\0') {
+      errorf("unterminated string");
+    }
+    if (c == '\\') {
+      c = read_escaped_char(lex);
+    }
+    string_add(val, c);
+  }
+  token_t *token = token_new(lex, TOKEN_KIND_STRING);
+  token->sval = val;
+  return token;
+}
+
 static token_t *new_keyword(lex_t *lex, int k) {
   token_t *token = token_new(lex, TOKEN_KIND_KEYWORD);
   token->keyword = k;
@@ -156,6 +197,9 @@ token_t *lex_get_token(lex_t *lex) {
   if (isdigit(c)) {
     unget_char(lex, c);
     return read_number(lex);
+  }
+  if (c == '"') {
+    return read_string(lex);
   }
   if (isalpha(c) || c == '_') {
     unget_char(lex, c);
