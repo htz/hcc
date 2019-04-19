@@ -36,6 +36,13 @@ node_t *node_new_string(parse_t *parse, string_t *sval, int sid) {
   return node;
 }
 
+node_t *node_new_variable(parse_t *parse, char *vname) {
+  node_t *node = node_new(parse, NODE_KIND_VARIABLE);
+  node->vname = strdup(vname);
+  node->voffset = 0;
+  return node;
+}
+
 node_t *node_new_binary_op(parse_t *parse, int op, node_t *left, node_t *right) {
   node_t *node = node_new(parse, NODE_KIND_BINARY_OP);
   node->op = op;
@@ -59,6 +66,9 @@ void node_free(node_t *node) {
   case NODE_KIND_LITERAL_STRING:
     string_free(node->sval);
     break;
+  case NODE_KIND_VARIABLE:
+    free(node->vname);
+    break;
   case NODE_KIND_BINARY_OP:
     break;
   case NODE_KIND_CALL:
@@ -73,8 +83,7 @@ void node_debug(node_t *node) {
   case NODE_KIND_NOP:
     break;
   case NODE_KIND_IDENTIFIER:
-    printf("%s", node->identifier);
-    break;
+    errorf("identifier node is internal use only");
   case NODE_KIND_LITERAL_INT:
     printf("%d", node->ival);
     break;
@@ -82,6 +91,9 @@ void node_debug(node_t *node) {
     printf("\"");
     string_print_quote(node->sval, stdout);
     printf("\"");
+    break;
+  case NODE_KIND_VARIABLE:
+    printf("%s", node->vname);
     break;
   case NODE_KIND_BINARY_OP:
     printf("(%c ", node->op);
