@@ -87,6 +87,7 @@ static node_t *primary_expression(parse_t *parse) {
     errorf("unknown keyword");
   case TOKEN_KIND_IDENTIFIER:
     return node_new_identifier(parse, token->identifier);
+  case TOKEN_KIND_CHAR:
   case TOKEN_KIND_INT:
     return node_new_int(parse, token->ival);
   case TOKEN_KIND_STRING:

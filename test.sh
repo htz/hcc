@@ -47,6 +47,7 @@ make -s hcc
 
 testast '1' '1;'
 testast '1, 2' '1,2;'
+testast "99" "'c';"
 testast '"abc"' '"abc";'
 testast '"a\\b\"c"' '"a\\b\"c";'
 testast '1;2' '1;2;'
@@ -83,6 +84,9 @@ test a3 'printf("a");3;'
 test abc5 'printf("%s", "abc");5;'
 
 testfail '0abc;'
+testfail "'c;"
+testfail "'cc';"
+testfail "'';"
 testfail '1+;'
 testfail '(1;'
 testfail '1'

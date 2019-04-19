@@ -29,6 +29,7 @@ struct string {
 };
 
 enum {
+  TOKEN_KIND_CHAR,
   TOKEN_KIND_INT,
   TOKEN_KIND_STRING,
   TOKEN_KIND_KEYWORD,
@@ -144,6 +145,7 @@ token_t *lex_expect_keyword_is(lex_t *lex, int k);
 node_t *node_new_nop(parse_t *parse);
 node_t *node_new_identifier(parse_t *parse, char *identifier);
 node_t *node_new_int(parse_t *parse, int ival);
+node_t *node_new_char(parse_t *parse, int ival);
 node_t *node_new_string(parse_t *parse, string_t *sval, int sid);
 node_t *node_new_binary_op(parse_t *parse, int op, node_t *left, node_t *right);
 node_t *node_new_call(parse_t *parse, node_t *func, vector_t *args);

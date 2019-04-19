@@ -135,6 +135,25 @@ static char read_escaped_char(lex_t *lex) {
   return c;
 }
 
+static token_t *read_char(lex_t *lex) {
+  token_t *token = token_new(lex, TOKEN_KIND_CHAR);
+  char c = get_char(lex);
+  if (c == '\0') {
+    errorf("unterminated char");
+  }
+  if (c == '\'') {
+    errorf("unexpected char expression");
+  }
+  if (c == '\\') {
+    c = read_escaped_char(lex);
+  }
+  token->ival = c;
+  if (get_char(lex) != '\'') {
+    errorf("unterminated char");
+  }
+  return token;
+}
+
 static token_t *read_string(lex_t *lex) {
   string_t *val = string_new();
   for (;;) {
@@ -197,6 +216,9 @@ token_t *lex_get_token(lex_t *lex) {
   if (isdigit(c)) {
     unget_char(lex, c);
     return read_number(lex);
+  }
+  if (c == '\'') {
+    return read_char(lex);
   }
   if (c == '"') {
     return read_string(lex);
