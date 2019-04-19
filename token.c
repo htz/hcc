@@ -4,6 +4,7 @@
 #include "hcc.h"
 
 static const char *token_names[] = {
+  "CHAR",
   "INT",
   "STRING",
   "KEYWORD",
