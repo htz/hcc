@@ -2,7 +2,7 @@ CC := gcc
 CFLAGS=-Wall -Wno-strict-aliasing -std=gnu11 -g -I. -O0
 
 PROG := hcc
-SRCS := error.c gen.c lex.c main.c node.c parse.c string.c token.c util.c vector.c
+SRCS := error.c gen.c lex.c main.c map.c node.c parse.c string.c token.c util.c vector.c
 OBJS := ${SRCS:%.c=%.o}
 DEPS := ${SRCS:%.c=%.d}
 

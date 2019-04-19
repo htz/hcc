@@ -136,7 +136,6 @@ static char read_escaped_char(lex_t *lex) {
 }
 
 static token_t *read_char(lex_t *lex) {
-  token_t *token = token_new(lex, TOKEN_KIND_CHAR);
   char c = get_char(lex);
   if (c == '\0') {
     errorf("unterminated char");
@@ -147,10 +146,11 @@ static token_t *read_char(lex_t *lex) {
   if (c == '\\') {
     c = read_escaped_char(lex);
   }
-  token->ival = c;
   if (get_char(lex) != '\'') {
     errorf("unterminated char");
   }
+  token_t *token = token_new(lex, TOKEN_KIND_CHAR);
+  token->ival = c;
   return token;
 }
 
@@ -229,7 +229,7 @@ token_t *lex_get_token(lex_t *lex) {
   }
   switch (c) {
   case '+': case '-': case '*': case '/': case '%':
-  case '(': case ')': case ',': case ';':
+  case '(': case ')': case ',': case ';': case '=':
     return new_keyword(lex, c);
   case '\0':
     return token_new(lex, TOKEN_KIND_EOF);

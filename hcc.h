@@ -21,6 +21,28 @@ struct vector {
   int capacity;
 };
 
+typedef struct map_entry map_entry_t;
+struct map_entry {
+  char *key;
+  void *val;
+  int flag;
+  map_entry_t *prev;
+  map_entry_t *next;
+};
+
+typedef struct map map_t;
+struct map {
+  map_entry_t *slot;
+  int size;
+  int occupied;
+  int slot_size_bit;
+  int slot_size;
+  int inc;
+  void (*free_val_fn)(void *);
+  map_entry_t *top;
+  map_entry_t *bottom;
+};
+
 typedef struct string string_t;
 struct string {
   char *buf;
@@ -67,6 +89,7 @@ enum {
   NODE_KIND_IDENTIFIER,
   NODE_KIND_LITERAL_INT,
   NODE_KIND_LITERAL_STRING,
+  NODE_KIND_VARIABLE,
   NODE_KIND_BINARY_OP,
   NODE_KIND_CALL,
 };
@@ -82,6 +105,11 @@ struct node {
     struct {
       string_t *sval;
       int sid;
+    };
+    // Variable
+    struct {
+      char *vname;
+      int voffset;
     };
     // Binary operator
     struct {
@@ -103,6 +131,7 @@ struct parse {
   vector_t *statements;
   vector_t *data;
   vector_t *nodes;
+  map_t *vars;
 };
 
 // vector.c
@@ -110,6 +139,15 @@ vector_t *vector_new(void);
 void vector_free(vector_t *vec);
 void vector_push(vector_t *vec, void *d);
 void *vector_pop(vector_t *vec);
+
+// map.c
+map_t *map_new(void);
+map_entry_t *map_find(map_t *map, void *key);
+void map_free(map_t *map);
+void map_clear(map_t *map);
+void *map_get(map_t *map, char *key);
+void map_add(map_t *map, char *key, void *val);
+int map_delete(map_t *map, char *key);
 
 // string.c
 string_t *string_new_with(char *s);
@@ -123,6 +161,7 @@ void string_print_quote(string_t *str, FILE *out);
 
 // util.c
 int max(int a, int b);
+void align(int *np, int a);
 
 // token.c
 token_t *token_new(lex_t *lex, int kind);
@@ -147,6 +186,7 @@ node_t *node_new_identifier(parse_t *parse, char *identifier);
 node_t *node_new_int(parse_t *parse, int ival);
 node_t *node_new_char(parse_t *parse, int ival);
 node_t *node_new_string(parse_t *parse, string_t *sval, int sid);
+node_t *node_new_variable(parse_t *parse, char *vname);
 node_t *node_new_binary_op(parse_t *parse, int op, node_t *left, node_t *right);
 node_t *node_new_call(parse_t *parse, node_t *func, vector_t *args);
 void node_free(node_t *node);

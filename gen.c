@@ -8,13 +8,16 @@ static const char *REGS[] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
 
 static void emitf_noindent(char *fmt, ...);
 static void emitf(char *fmt, ...);
-static void emit_push(const char *reg);
-static void emit_pop(const char *reg);
-static void emit_int(node_t *node);
-static void emit_string(node_t *node);
+static void emit_push(parse_t *parse, const char *reg);
+static void emit_pop(parse_t *parse, const char *reg);
+static void emit_int(parse_t *parse, node_t *node);
+static void emit_string(parse_t *parse, node_t *node);
 static void emit_string_data(string_t *str);
-static void emit_binary_op_expression(node_t *node);
-static void emit_expression(node_t *node);
+static void emit_variable(parse_t *parse, node_t *node);
+static void emit_binary_op_expression(parse_t *parse, node_t *node);
+static void emit_call(parse_t *parse, node_t *node);
+static void emit_expression(parse_t *parse, node_t *node);
+static void emit_data_section(parse_t *parse);
 
 static void emitf_noindent(char *fmt, ...) {
   va_list args;
@@ -33,19 +36,19 @@ static void emitf(char *fmt, ...) {
   fprintf(stdout, "\n");
 }
 
-static void emit_push(const char *reg) {
+static void emit_push(parse_t *parse, const char *reg) {
   emitf("push %%%s", reg);
 }
 
-static void emit_pop(const char *reg) {
+static void emit_pop(parse_t *parse, const char *reg) {
   emitf("pop %%%s", reg);
 }
 
-static void emit_int(node_t *node) {
+static void emit_int(parse_t *parse, node_t *node) {
   emitf("mov $%d, %%rax", node->ival);
 }
 
-static void emit_string(node_t *node) {
+static void emit_string(parse_t *parse, node_t *node) {
   emitf("lea .STR_%d(%%rip), %%rax", node->sid);
 }
 
@@ -55,13 +58,29 @@ static void emit_string_data(string_t *str) {
   fprintf(stdout, "\"\n");
 }
 
-static void emit_binary_op_expression(node_t *node) {
-  emit_expression(node->left);
-  emit_push("rcx");
-  emit_push("rax");
-  emit_expression(node->right);
+static void emit_variable(parse_t *parse, node_t *node) {
+  emitf("mov %d(%%rbp), %%rax", -node->voffset);
+}
+
+static void emit_binary_op_expression(parse_t *parse, node_t *node) {
+  if (node->op == '=') {
+    emit_expression(parse, node->right);
+    assert(node->left->kind == NODE_KIND_VARIABLE);
+    map_entry_t *e = map_find(parse->vars, node->left->vname);
+    if (e == NULL) {
+      errorf("variable not found");
+    }
+    node_t *var = (node_t *)e->val;
+    emitf("mov %%rax, %d(%%rbp)", -var->voffset);
+    return;
+  }
+
+  emit_expression(parse, node->left);
+  emit_push(parse, "rcx");
+  emit_push(parse, "rax");
+  emit_expression(parse, node->right);
   emitf("mov %%rax, %%rcx");
-  emit_pop("rax");
+  emit_pop(parse, "rax");
   if (node->op == '/' || node->op == '%') {
     emitf("cqto");
     emitf("idiv %%rcx");
@@ -79,10 +98,10 @@ static void emit_binary_op_expression(node_t *node) {
     }
     emitf("%s %%rcx, %%rax", op);
   }
-  emit_pop("rcx");
+  emit_pop(parse, "rcx");
 }
 
-static void emit_call(node_t *node) {
+static void emit_call(parse_t *parse, node_t *node) {
   int i;
   vector_t *iargs = vector_new();
   vector_t *rargs = vector_new();
@@ -92,17 +111,17 @@ static void emit_call(node_t *node) {
   }
   // store registers
   for (i = 0; i < iargs->size; i++) {
-    emit_push(REGS[i]);
+    emit_push(parse, REGS[i]);
   }
   // build arguments
   for (i = rargs->size - 1; i >= 0; i--) {
     node_t *n = (node_t *)rargs->data[i];
-    emit_expression(n);
-    emit_push("rax");
+    emit_expression(parse, n);
+    emit_push(parse, "rax");
   }
   for (i = 0; i < iargs->size; i++) {
     node_t *n = (node_t *)iargs->data[i];
-    emit_expression(n);
+    emit_expression(parse, n);
     emitf("mov %%rax, %%%s", REGS[i]);
   }
   // call function
@@ -114,29 +133,32 @@ static void emit_call(node_t *node) {
     emitf("add $%d, %%rsp", rsize);
   }
   for (i = iargs->size - 1; i >= 0; i--) {
-    emit_pop(REGS[i]);
+    emit_pop(parse, REGS[i]);
   }
 
   vector_free(iargs);
   vector_free(rargs);
 }
 
-static void emit_expression(node_t *node) {
+static void emit_expression(parse_t *parse, node_t *node) {
   for (; node; node = node->next) {
     switch (node->kind) {
     case NODE_KIND_NOP:
       break;
     case NODE_KIND_BINARY_OP:
-      emit_binary_op_expression(node);
+      emit_binary_op_expression(parse, node);
       break;
     case NODE_KIND_LITERAL_INT:
-      emit_int(node);
+      emit_int(parse, node);
       break;
     case NODE_KIND_LITERAL_STRING:
-      emit_string(node);
+      emit_string(parse, node);
+      break;
+    case NODE_KIND_VARIABLE:
+      emit_variable(parse, node);
       break;
     case NODE_KIND_CALL:
-      emit_call(node);
+      emit_call(parse, node);
       break;
     default:
       errorf("unknown expression node: %d", node->kind);
@@ -158,14 +180,21 @@ static void emit_data_section(parse_t *parse) {
 }
 
 void gen(parse_t *parse) {
+  int offset = 0;
+  for (map_entry_t *e = parse->vars->top; e != NULL; e = e->next) {
+    node_t *n = (node_t *)e->val;
+    offset += 8;
+    n->voffset = offset;
+  }
   emit_data_section(parse);
   emitf(".text");
   emitf_noindent(".global mymain");
   emitf_noindent("mymain:");
-  emit_push("rbp");
+  emit_push(parse, "rbp");
   emitf("mov %%rsp, %%rbp");
+  emitf("sub $%d, %%rsp", offset);
   for (int i = 0; i < parse->statements->size; i++) {
-    emit_expression((node_t *)parse->statements->data[i]);
+    emit_expression(parse, (node_t *)parse->statements->data[i]);
   }
   emitf("leave");
   emitf("ret");

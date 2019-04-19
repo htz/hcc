@@ -15,6 +15,14 @@ static node_t *assignment_expression(parse_t *parse);
 static node_t *statement(parse_t *parse);
 static node_t *expression_statement(parse_t *parse);
 
+static node_t *find_variable(parse_t *parse, char *identifier) {
+  map_entry_t *e = map_find(parse->vars, identifier);
+  if (e == NULL) {
+    return NULL;
+  }
+  return (node_t *)e->val;
+}
+
 static node_t *additive_expression(parse_t *parse) {
   node_t *node = multiplicative_expression(parse);
   for (;;) {
@@ -69,7 +77,16 @@ static node_t *postfix_expression(parse_t *parse) {
   node_t *node = primary_expression(parse);
   if (lex_next_keyword_is(parse->lex, '(')) {
     vector_t *args = func_args(parse);
-    node = node_new_call(parse, node, args);
+    return node_new_call(parse, node, args);
+  }
+
+  if (node->kind == NODE_KIND_IDENTIFIER) {
+    node_t *var = find_variable(parse, node->identifier);
+    if (var == NULL) {
+      var = node_new_variable(parse, node->identifier);
+      map_add(parse->vars, node->identifier, var);
+    }
+    node = var;
   }
   return node;
 }
@@ -117,7 +134,14 @@ static node_t *expression(parse_t *parse) {
 }
 
 static node_t *assignment_expression(parse_t *parse) {
-  return additive_expression(parse);
+  node_t *node = additive_expression(parse);
+  for (;;) {
+    if (!lex_next_keyword_is(parse->lex, '=')) {
+      break;
+    }
+    node = node_new_binary_op(parse, '=', node, assignment_expression(parse));
+  }
+  return node;
 }
 
 static node_t *statement(parse_t *parse) {
@@ -139,6 +163,7 @@ static parse_t *parse_new(FILE *fp) {
   parse->data = vector_new();
   parse->statements = vector_new();
   parse->nodes = vector_new();
+  parse->vars = map_new();
   return parse;
 }
 
@@ -150,6 +175,7 @@ void parse_free(parse_t *parse) {
     node_free((node_t *)parse->nodes->data[i]);
   }
   vector_free(parse->nodes);
+  map_free(parse->vars);
   free(parse);
 }
 
