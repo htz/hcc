@@ -14,6 +14,7 @@ static void emit_int(parse_t *parse, node_t *node);
 static void emit_string(parse_t *parse, node_t *node);
 static void emit_string_data(string_t *str);
 static void emit_variable(parse_t *parse, node_t *node);
+static void emit_assign(parse_t *parse, node_t *var, node_t *val);
 static void emit_binary_op_expression(parse_t *parse, node_t *node);
 static void emit_call(parse_t *parse, node_t *node);
 static void emit_expression(parse_t *parse, node_t *node);
@@ -62,16 +63,15 @@ static void emit_variable(parse_t *parse, node_t *node) {
   emitf("mov %d(%%rbp), %%rax", -node->voffset);
 }
 
+static void emit_assign(parse_t *parse, node_t *var, node_t *val) {
+  emit_expression(parse, val);
+  emitf("mov %%rax, %d(%%rbp)", -var->voffset);
+}
+
 static void emit_binary_op_expression(parse_t *parse, node_t *node) {
   if (node->op == '=') {
-    emit_expression(parse, node->right);
     assert(node->left->kind == NODE_KIND_VARIABLE);
-    map_entry_t *e = map_find(parse->vars, node->left->vname);
-    if (e == NULL) {
-      errorf("variable not found");
-    }
-    node_t *var = (node_t *)e->val;
-    emitf("mov %%rax, %d(%%rbp)", -var->voffset);
+    emit_assign(parse, node->left, node->right);
     return;
   }
 
@@ -156,6 +156,11 @@ static void emit_expression(parse_t *parse, node_t *node) {
       break;
     case NODE_KIND_VARIABLE:
       emit_variable(parse, node);
+      break;
+    case NODE_KIND_DECLARATION:
+      if (node->dec_init) {
+        emit_assign(parse, node->dec_var, node->dec_init);
+      }
       break;
     case NODE_KIND_CALL:
       emit_call(parse, node);

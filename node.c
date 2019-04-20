@@ -5,6 +5,11 @@
 #include <string.h>
 #include "hcc.h"
 
+static const char *type_names[] = {
+    "char",
+    "int",
+};
+
 static node_t *node_new(parse_t *parse, int kind) {
   node_t *node = (node_t *)malloc(sizeof (node_t));
   node->kind = kind;
@@ -43,6 +48,14 @@ node_t *node_new_variable(parse_t *parse, char *vname) {
   return node;
 }
 
+node_t *node_new_declaration(parse_t *parse, int type, node_t *var, node_t *init) {
+  node_t *node = node_new(parse, NODE_KIND_DECLARATION);
+  node->type = type;
+  node->dec_var = var;
+  node->dec_init = init;
+  return node;
+}
+
 node_t *node_new_binary_op(parse_t *parse, int op, node_t *left, node_t *right) {
   node_t *node = node_new(parse, NODE_KIND_BINARY_OP);
   node->op = op;
@@ -69,6 +82,8 @@ void node_free(node_t *node) {
   case NODE_KIND_VARIABLE:
     free(node->vname);
     break;
+  case NODE_KIND_DECLARATION:
+    break;
   case NODE_KIND_BINARY_OP:
     break;
   case NODE_KIND_CALL:
@@ -94,6 +109,14 @@ void node_debug(node_t *node) {
     break;
   case NODE_KIND_VARIABLE:
     printf("%s", node->vname);
+    break;
+  case NODE_KIND_DECLARATION:
+    printf("(decl %s %s", type_names[node->type], node->dec_var->vname);
+    if (node->dec_init) {
+      printf(" ");
+      node_debug(node->dec_init);
+    }
+    printf(")");
     break;
   case NODE_KIND_BINARY_OP:
     printf("(%c ", node->op);
