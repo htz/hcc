@@ -51,6 +51,11 @@ struct string {
 };
 
 enum {
+  TYPE_CHAR,
+  TYPE_INT,
+};
+
+enum {
   TOKEN_KIND_CHAR,
   TOKEN_KIND_INT,
   TOKEN_KIND_STRING,
@@ -90,6 +95,7 @@ enum {
   NODE_KIND_LITERAL_INT,
   NODE_KIND_LITERAL_STRING,
   NODE_KIND_VARIABLE,
+  NODE_KIND_DECLARATION,
   NODE_KIND_BINARY_OP,
   NODE_KIND_CALL,
 };
@@ -97,6 +103,7 @@ enum {
 typedef struct node node_t;
 struct node {
   int kind;
+  int type;
   node_t *next;
   union {
     char *identifier;
@@ -116,6 +123,11 @@ struct node {
       int op;
       node_t *left;
       node_t *right;
+    };
+    // Declaration variable
+    struct {
+      node_t *dec_var;
+      node_t *dec_init;
     };
     // Function call
     struct {
@@ -187,6 +199,7 @@ node_t *node_new_int(parse_t *parse, int ival);
 node_t *node_new_char(parse_t *parse, int ival);
 node_t *node_new_string(parse_t *parse, string_t *sval, int sid);
 node_t *node_new_variable(parse_t *parse, char *vname);
+node_t *node_new_declaration(parse_t *parse, int type, node_t *var, node_t *init);
 node_t *node_new_binary_op(parse_t *parse, int op, node_t *left, node_t *right);
 node_t *node_new_call(parse_t *parse, node_t *func, vector_t *args);
 void node_free(node_t *node);
