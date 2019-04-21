@@ -51,8 +51,18 @@ struct string {
 };
 
 enum {
-  TYPE_CHAR,
-  TYPE_INT,
+  TYPE_KIND_CHAR,
+  TYPE_KIND_STRING,
+  TYPE_KIND_INT,
+  TYPE_KIND_PTR,
+};
+
+typedef struct type type_t;
+struct type {
+  char *name;
+  int kind;
+  type_t *parent;
+  int bytes;
 };
 
 enum {
@@ -92,18 +102,18 @@ struct lex {
 enum {
   NODE_KIND_NOP,
   NODE_KIND_IDENTIFIER,
-  NODE_KIND_LITERAL_INT,
-  NODE_KIND_LITERAL_STRING,
+  NODE_KIND_LITERAL,
   NODE_KIND_VARIABLE,
   NODE_KIND_DECLARATION,
   NODE_KIND_BINARY_OP,
+  NODE_KIND_UNARY_OP,
   NODE_KIND_CALL,
 };
 
 typedef struct node node_t;
 struct node {
   int kind;
-  int type;
+  type_t *type;
   node_t *next;
   union {
     char *identifier;
@@ -118,11 +128,18 @@ struct node {
       char *vname;
       int voffset;
     };
-    // Binary operator
+    // Binary/Unary operator
     struct {
       int op;
-      node_t *left;
-      node_t *right;
+      // Binary operand
+      struct {
+        node_t *left;
+        node_t *right;
+      };
+      // Unary operand
+      struct {
+        node_t *operand;
+      };
     };
     // Declaration variable
     struct {
@@ -144,6 +161,11 @@ struct parse {
   vector_t *data;
   vector_t *nodes;
   map_t *vars;
+  map_t *types;
+  // builtin types
+  type_t *type_char;
+  type_t *type_string;
+  type_t *type_int;
 };
 
 // vector.c
@@ -175,6 +197,12 @@ void string_print_quote(string_t *str, FILE *out);
 int max(int a, int b);
 void align(int *np, int a);
 
+// type.c
+type_t *type_new(char *name, int kind, type_t *ptr);
+void type_free(type_t *t);
+type_t *type_get(parse_t *parse, char *name, type_t *parent);
+type_t *type_get_ptr(parse_t *parse, type_t *type);
+
 // token.c
 token_t *token_new(lex_t *lex, int kind);
 void token_free(token_t *token);
@@ -195,13 +223,13 @@ token_t *lex_expect_keyword_is(lex_t *lex, int k);
 // node.c
 node_t *node_new_nop(parse_t *parse);
 node_t *node_new_identifier(parse_t *parse, char *identifier);
-node_t *node_new_int(parse_t *parse, int ival);
-node_t *node_new_char(parse_t *parse, int ival);
+node_t *node_new_int(parse_t *parse, type_t *type, int ival);
 node_t *node_new_string(parse_t *parse, string_t *sval, int sid);
-node_t *node_new_variable(parse_t *parse, char *vname);
-node_t *node_new_declaration(parse_t *parse, int type, node_t *var, node_t *init);
-node_t *node_new_binary_op(parse_t *parse, int op, node_t *left, node_t *right);
-node_t *node_new_call(parse_t *parse, node_t *func, vector_t *args);
+node_t *node_new_variable(parse_t *parse, type_t *type, char *vname);
+node_t *node_new_declaration(parse_t *parse, type_t *type, node_t *var, node_t *init);
+node_t *node_new_binary_op(parse_t *parse, type_t *type, int op, node_t *left, node_t *right);
+node_t *node_new_unary_op(parse_t *parse, type_t *type, int op, node_t *operand);
+node_t *node_new_call(parse_t *parse, type_t *type, node_t *func, vector_t *args);
 void node_free(node_t *node);
 void node_debug(node_t *node);
 

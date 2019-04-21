@@ -16,6 +16,7 @@ static void emit_string_data(string_t *str);
 static void emit_variable(parse_t *parse, node_t *node);
 static void emit_assign(parse_t *parse, node_t *var, node_t *val);
 static void emit_binary_op_expression(parse_t *parse, node_t *node);
+static void emit_unary_op_expression(parse_t *parse, node_t *node);
 static void emit_call(parse_t *parse, node_t *node);
 static void emit_expression(parse_t *parse, node_t *node);
 static void emit_data_section(parse_t *parse);
@@ -60,7 +61,19 @@ static void emit_string_data(string_t *str) {
 }
 
 static void emit_variable(parse_t *parse, node_t *node) {
-  emitf("mov %d(%%rbp), %%rax", -node->voffset);
+  switch (node->type->bytes) {
+  case 1:
+    emitf("movsbq %d(%%rbp), %%rax", -node->voffset);
+    break;
+  case 4:
+    emitf("movslq %d(%%rbp), %%rax", -node->voffset);
+    break;
+  case 8:
+    emitf("mov %d(%%rbp), %%rax", -node->voffset);
+    break;
+  default:
+    errorf("invalid variable type");
+  }
 }
 
 static void emit_assign(parse_t *parse, node_t *var, node_t *val) {
@@ -99,6 +112,31 @@ static void emit_binary_op_expression(parse_t *parse, node_t *node) {
     emitf("%s %%rcx, %%rax", op);
   }
   emit_pop(parse, "rcx");
+}
+
+static void emit_unary_op_expression(parse_t *parse, node_t *node) {
+  switch (node->op) {
+  case '&':
+    assert(node->operand->kind == NODE_KIND_VARIABLE);
+    emitf("lea %d(%%rbp), %%rax", -node->operand->voffset);
+    break;
+  case '*':
+    emit_expression(parse, node->operand);
+    switch (node->type->bytes) {
+    case 1:
+      emitf("movzbq (%%rax), %%rax");
+      break;
+    case 4:
+      emitf("mov (%%rax), %%eax");
+      break;
+    case 8:
+      emitf("mov (%%rax), %%rax");
+      break;
+    default:
+      errorf("invalid variable type");
+    }
+    break;
+  }
 }
 
 static void emit_call(parse_t *parse, node_t *node) {
@@ -148,11 +186,21 @@ static void emit_expression(parse_t *parse, node_t *node) {
     case NODE_KIND_BINARY_OP:
       emit_binary_op_expression(parse, node);
       break;
-    case NODE_KIND_LITERAL_INT:
-      emit_int(parse, node);
+    case NODE_KIND_UNARY_OP:
+      emit_unary_op_expression(parse, node);
       break;
-    case NODE_KIND_LITERAL_STRING:
-      emit_string(parse, node);
+    case NODE_KIND_LITERAL:
+      switch (node->type->kind) {
+      case TYPE_KIND_CHAR:
+      case TYPE_KIND_INT:
+        emit_int(parse, node);
+        break;
+      case TYPE_KIND_STRING:
+        emit_string(parse, node);
+        break;
+      default:
+        errorf("unknown literal type: %d", node->type);
+      }
       break;
     case NODE_KIND_VARIABLE:
       emit_variable(parse, node);

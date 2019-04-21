@@ -63,6 +63,9 @@ testast '(+ (* (+ 1 2) 3) 4)' '(1+2)*3+4;'
 testast '(% (+ (+ (+ 1 2) 3) 4) 3)' '(1+2+3+4)%3;'
 testast "(decl int a 3)" 'int a=3;'
 testast "(decl char c 97)" "char c='a';"
+testast "(decl int a 3);(& a)" 'int a=3;&a;'
+testast "(decl int a 3);(* (& a))" 'int a=3;*&a;'
+testast "(decl int a 3);(decl int* b (& a));(* b)" 'int a=3;int *b=&a;*b;'
 
 testast '(a)' 'a();'
 testast '(a 1 2 3 4 5 6)' 'a(1,2,3,4,5,6);'
@@ -80,6 +83,9 @@ test 13 '(1+2)*3+4;'
 test 1 '(1+2+3+4)%3;'
 test 3 'int a=1;a+2;'
 test 102 'int a=1,b=48+2;int c=a+b;c*2;'
+test 61 'int a=61;int *b=&a;*b;'
+test 97 'char *c="ab";*c;'
+test 98 'char *c="ab"+1;*c;'
 
 test 25 'sum2(20, 5);'
 test 55 'sum10(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);'
@@ -102,5 +108,9 @@ testfail 'a=;'
 testfail '3=1;'
 testfail 'a=1;'
 testfail 'int a,a;'
+
+testfail '&"a";'
+testfail '&1;'
+testfail '&a();'
 
 echo "All tests passed"
