@@ -32,10 +32,29 @@ node_t *node_new_int(parse_t *parse, type_t *type, int ival) {
 }
 
 node_t *node_new_string(parse_t *parse, string_t *sval, int sid) {
-  node_t *node = node_new(parse, NODE_KIND_LITERAL);
-  node->type = parse->type_string;
+  node_t *node = node_new(parse, NODE_KIND_STRING_LITERAL);
+  int size = sval->size + 1;
+  string_t *name = string_new();
+  string_appendf(name, "char[%d]", size);
+  map_entry_t *e = map_find(parse->types, name->buf);
+  type_t *type;
+  if (e == NULL) {
+    type = type_new_with_size(name->buf, TYPE_KIND_ARRAY, parse->type_char, size);
+    map_add(parse->types, name->buf, type);
+  } else {
+    type = (type_t *)e->val;
+  }
+  node->type = type;
   node->sval = string_dup(sval);
   node->sid = sid;
+  string_free(name);
+  return node;
+}
+
+node_t *node_new_init_list(parse_t *parse, type_t *type, vector_t *init) {
+  node_t *node = node_new(parse, NODE_KIND_INIT_LIST);
+  node->type = type;
+  node->init_list = init;
   return node;
 }
 
@@ -87,10 +106,17 @@ void node_free(node_t *node) {
     break;
   case NODE_KIND_LITERAL:
     switch (node->type->kind) {
-      case TYPE_KIND_STRING:
+      case TYPE_KIND_ARRAY:
+        assert(node->type->size > 0 && node->type->parent && node->type->parent->kind == TYPE_KIND_CHAR);
         string_free(node->sval);
         break;
     }
+    break;
+  case NODE_KIND_STRING_LITERAL:
+    string_free(node->sval);
+    break;
+  case NODE_KIND_INIT_LIST:
+    vector_free(node->init_list);
     break;
   case NODE_KIND_VARIABLE:
     free(node->vname);
@@ -119,14 +145,26 @@ void node_debug(node_t *node) {
       case TYPE_KIND_INT:
         printf("%d", node->ival);
         break;
-      case TYPE_KIND_STRING:
-        printf("\"");
-        string_print_quote(node->sval, stdout);
-        printf("\"");
-        break;
       default:
         errorf("unknown literal type: %d", node->type->kind);
     }
+    break;
+  case NODE_KIND_STRING_LITERAL:
+    assert(node->type->kind == TYPE_KIND_ARRAY && node->type->size > 0);
+    assert(node->type->parent && node->type->parent->kind == TYPE_KIND_CHAR);
+    printf("\"");
+    string_print_quote(node->sval, stdout);
+    printf("\"");
+    break;
+  case NODE_KIND_INIT_LIST:
+    printf("[");
+    for (int i = 0; i < node->init_list->size; i++) {
+      node_debug((node_t *)node->init_list->data[i]);
+      if (i < node->init_list->size - 1) {
+        printf(" ");
+      }
+    }
+    printf("]");
     break;
   case NODE_KIND_VARIABLE:
     printf("%s", node->vname);

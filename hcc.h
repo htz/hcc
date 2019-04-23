@@ -52,9 +52,9 @@ struct string {
 
 enum {
   TYPE_KIND_CHAR,
-  TYPE_KIND_STRING,
   TYPE_KIND_INT,
   TYPE_KIND_PTR,
+  TYPE_KIND_ARRAY,
 };
 
 typedef struct type type_t;
@@ -63,6 +63,8 @@ struct type {
   int kind;
   type_t *parent;
   int bytes;
+  int size;
+  int total_size;
 };
 
 enum {
@@ -103,6 +105,8 @@ enum {
   NODE_KIND_NOP,
   NODE_KIND_IDENTIFIER,
   NODE_KIND_LITERAL,
+  NODE_KIND_STRING_LITERAL,
+  NODE_KIND_INIT_LIST,
   NODE_KIND_VARIABLE,
   NODE_KIND_DECLARATION,
   NODE_KIND_BINARY_OP,
@@ -123,6 +127,8 @@ struct node {
       string_t *sval;
       int sid;
     };
+    // Initialize array
+    vector_t *init_list;
     // Variable
     struct {
       char *vname;
@@ -164,7 +170,6 @@ struct parse {
   map_t *types;
   // builtin types
   type_t *type_char;
-  type_t *type_string;
   type_t *type_int;
 };
 
@@ -198,10 +203,16 @@ int max(int a, int b);
 void align(int *np, int a);
 
 // type.c
+type_t *type_new_with_size(char *name, int kind, type_t *parent, int size);
 type_t *type_new(char *name, int kind, type_t *ptr);
 void type_free(type_t *t);
+type_t *type_find(parse_t *parse, char *name);
+void type_add(parse_t *parse, char *name, type_t *type);
 type_t *type_get(parse_t *parse, char *name, type_t *parent);
 type_t *type_get_ptr(parse_t *parse, type_t *type);
+type_t *type_make_array(parse_t *parse, type_t *parent, int size);
+bool type_is_assignable(type_t *a, type_t *b);
+bool type_is_int(type_t *type);
 
 // token.c
 token_t *token_new(lex_t *lex, int kind);
@@ -225,6 +236,7 @@ node_t *node_new_nop(parse_t *parse);
 node_t *node_new_identifier(parse_t *parse, char *identifier);
 node_t *node_new_int(parse_t *parse, type_t *type, int ival);
 node_t *node_new_string(parse_t *parse, string_t *sval, int sid);
+node_t *node_new_init_list(parse_t *parse, type_t *type, vector_t *init);
 node_t *node_new_variable(parse_t *parse, type_t *type, char *vname);
 node_t *node_new_declaration(parse_t *parse, type_t *type, node_t *var, node_t *init);
 node_t *node_new_binary_op(parse_t *parse, type_t *type, int op, node_t *left, node_t *right);
