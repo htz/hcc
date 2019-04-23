@@ -230,7 +230,7 @@ token_t *lex_get_token(lex_t *lex) {
   switch (c) {
   case '+': case '-': case '*': case '/': case '%':
   case '(': case ')': case ',': case ';': case '=':
-  case '&':
+  case '&': case '[': case ']': case '{': case '}':
     return new_keyword(lex, c);
   case '\0':
     return token_new(lex, TOKEN_KIND_EOF);

@@ -14,9 +14,10 @@ static void emit_int(parse_t *parse, node_t *node);
 static void emit_string(parse_t *parse, node_t *node);
 static void emit_string_data(string_t *str);
 static void emit_variable(parse_t *parse, node_t *node);
-static void emit_assign(parse_t *parse, node_t *var, node_t *val);
+static void emit_store(parse_t *parse, node_t *var);
 static void emit_binary_op_expression(parse_t *parse, node_t *node);
 static void emit_unary_op_expression(parse_t *parse, node_t *node);
+static void emit_declaration_init(parse_t *parse, node_t *var, node_t *init);
 static void emit_call(parse_t *parse, node_t *node);
 static void emit_expression(parse_t *parse, node_t *node);
 static void emit_data_section(parse_t *parse);
@@ -51,6 +52,8 @@ static void emit_int(parse_t *parse, node_t *node) {
 }
 
 static void emit_string(parse_t *parse, node_t *node) {
+  assert(node->type->kind == TYPE_KIND_ARRAY && node->type->size > 0);
+  assert(node->type->parent && node->type->parent->kind == TYPE_KIND_CHAR);
   emitf("lea .STR_%d(%%rip), %%rax", node->sid);
 }
 
@@ -61,6 +64,11 @@ static void emit_string_data(string_t *str) {
 }
 
 static void emit_variable(parse_t *parse, node_t *node) {
+  if (node->type->kind == TYPE_KIND_ARRAY) {
+    assert(node->type->parent != NULL);
+    emitf("lea %d(%%rbp), %%rax", -node->voffset);
+    return;
+  }
   switch (node->type->bytes) {
   case 1:
     emitf("movsbq %d(%%rbp), %%rax", -node->voffset);
@@ -76,15 +84,51 @@ static void emit_variable(parse_t *parse, node_t *node) {
   }
 }
 
-static void emit_assign(parse_t *parse, node_t *var, node_t *val) {
-  emit_expression(parse, val);
-  emitf("mov %%rax, %d(%%rbp)", -var->voffset);
+static void emit_save(parse_t *parse, node_t *var, type_t *type, int base, int at) {
+  switch (type->bytes) {
+  case 1:
+    emitf("mov %%al, %d(%%rbp)", -var->voffset + base + type->bytes * at);
+    break;
+  case 4:
+    emitf("mov %%eax, %d(%%rbp)", -var->voffset + base + type->bytes * at);
+    break;
+  case 8:
+    emitf("mov %%rax, %d(%%rbp)", -var->voffset + base + type->bytes * at);
+    break;
+  default:
+    errorf("invalid variable type");
+  }
+}
+
+static void emit_store(parse_t *parse, node_t *var) {
+  if (var->kind == NODE_KIND_UNARY_OP && var->op == '*') {
+    emit_push(parse, "rax");
+    emit_expression(parse, var->operand);
+    emitf("mov %%rax, %%rcx");
+    emit_pop(parse, "rax");
+    switch (var->type->bytes) {
+    case 1:
+      emitf("mov %%al, (%%rcx)");
+      break;
+    case 4:
+      emitf("mov %%eax, (%%rcx)");
+      break;
+    case 8:
+      emitf("mov %%rax, (%%rcx)");
+      break;
+    default:
+      errorf("invalid variable type");
+    }
+    return;
+  }
+  assert(var->kind == NODE_KIND_VARIABLE);
+  emit_save(parse, var, var->type, 0, 0);
 }
 
 static void emit_binary_op_expression(parse_t *parse, node_t *node) {
   if (node->op == '=') {
-    assert(node->left->kind == NODE_KIND_VARIABLE);
-    emit_assign(parse, node->left, node->right);
+    emit_expression(parse, node->right);
+    emit_store(parse, node->left);
     return;
   }
 
@@ -92,6 +136,12 @@ static void emit_binary_op_expression(parse_t *parse, node_t *node) {
   emit_push(parse, "rcx");
   emit_push(parse, "rax");
   emit_expression(parse, node->right);
+  if (node->left->type->kind == TYPE_KIND_PTR || node->left->type->kind == TYPE_KIND_ARRAY) {
+    assert(node->left->type->parent != NULL);
+    if (node->left->type->parent->total_size > 1) {
+      emitf("imul $%d, %%rax", node->left->type->parent->total_size);
+    }
+  }
   emitf("mov %%rax, %%rcx");
   emit_pop(parse, "rax");
   if (node->op == '/' || node->op == '%') {
@@ -122,6 +172,9 @@ static void emit_unary_op_expression(parse_t *parse, node_t *node) {
     break;
   case '*':
     emit_expression(parse, node->operand);
+    if (node->type->kind == TYPE_KIND_ARRAY) {
+      return;
+    }
     switch (node->type->bytes) {
     case 1:
       emitf("movzbq (%%rax), %%rax");
@@ -136,6 +189,37 @@ static void emit_unary_op_expression(parse_t *parse, node_t *node) {
       errorf("invalid variable type");
     }
     break;
+  }
+}
+
+static void emit_declaration_init_array(parse_t *parse, node_t *var, type_t *type, vector_t *vals, int offset) {
+  assert(type->parent != NULL);
+  for (int i = 0; i < vals->size; i++) {
+    node_t *val = (node_t *)vals->data[i];
+    if (val->kind != NODE_KIND_INIT_LIST) {
+      emit_expression(parse, val);
+      emit_save(parse, var, type->parent, offset, i);
+    } else {
+      emit_declaration_init_array(parse, var, type->parent, val->init_list, offset + type->parent->total_size * i);
+    }
+  }
+}
+
+static void emit_declaration_init(parse_t *parse, node_t *var, node_t *init) {
+  if (var->type->kind == TYPE_KIND_ARRAY && init->kind == NODE_KIND_STRING_LITERAL) {
+    int i = 0;
+    char *p = init->sval->buf;
+    for (i = 0; i < var->type->size - 1 && *p != '\0'; i++, p++) {
+      emitf("mov $%d, %%al", *p);
+      emit_save(parse, var, parse->type_char, 0, i);
+    }
+    emitf("mov $%d, %%al", '\0');
+    emit_save(parse, var, parse->type_char, 0, i);
+  } else if (init->kind != NODE_KIND_INIT_LIST) {
+    emit_expression(parse, init);
+    emit_store(parse, var);
+  } else {
+    emit_declaration_init_array(parse, var, var->type, init->init_list, 0);
   }
 }
 
@@ -195,19 +279,19 @@ static void emit_expression(parse_t *parse, node_t *node) {
       case TYPE_KIND_INT:
         emit_int(parse, node);
         break;
-      case TYPE_KIND_STRING:
-        emit_string(parse, node);
-        break;
       default:
         errorf("unknown literal type: %d", node->type);
       }
+      break;
+    case NODE_KIND_STRING_LITERAL:
+      emit_string(parse, node);
       break;
     case NODE_KIND_VARIABLE:
       emit_variable(parse, node);
       break;
     case NODE_KIND_DECLARATION:
       if (node->dec_init) {
-        emit_assign(parse, node->dec_var, node->dec_init);
+        emit_declaration_init(parse, node->dec_var, node->dec_init);
       }
       break;
     case NODE_KIND_CALL:
@@ -236,7 +320,8 @@ void gen(parse_t *parse) {
   int offset = 0;
   for (map_entry_t *e = parse->vars->top; e != NULL; e = e->next) {
     node_t *n = (node_t *)e->val;
-    offset += 8;
+    offset += n->type->total_size;
+    align(&offset, 8);
     n->voffset = offset;
   }
   emit_data_section(parse);
