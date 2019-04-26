@@ -19,6 +19,7 @@ static void emit_binary_op_expression(parse_t *parse, node_t *node);
 static void emit_unary_op_expression(parse_t *parse, node_t *node);
 static void emit_declaration_init(parse_t *parse, node_t *var, node_t *init);
 static void emit_call(parse_t *parse, node_t *node);
+static void emit_if(parse_t *parse, node_t *node);
 static void emit_expression(parse_t *parse, node_t *node);
 static void emit_data_section(parse_t *parse);
 
@@ -262,6 +263,21 @@ static void emit_call(parse_t *parse, node_t *node) {
   vector_free(rargs);
 }
 
+static void emit_if(parse_t *parse, node_t *node) {
+  emit_expression(parse, node->cond);
+  emitf("test %%rax, %%rax");
+  emitf("je .L%p", node->then_body);
+  emit_expression(parse, node->then_body);
+  if (node->else_body) {
+    emitf("jmp .L%p", node->else_body);
+    emitf(".L%p:", node->then_body);
+    emit_expression(parse, node->else_body);
+    emitf(".L%p:", node->else_body);
+  } else {
+    emitf(".L%p:", node->then_body);
+  }
+}
+
 static void emit_expression(parse_t *parse, node_t *node) {
   for (; node; node = node->next) {
     switch (node->kind) {
@@ -297,10 +313,33 @@ static void emit_expression(parse_t *parse, node_t *node) {
     case NODE_KIND_CALL:
       emit_call(parse, node);
       break;
+    case NODE_KIND_BLOCK:
+      for (int i = 0; i < node->statements->size; i++) {
+        emit_expression(parse, (node_t *)node->statements->data[i]);
+      }
+      break;
+    case NODE_KIND_IF:
+      emit_if(parse, node);
+      break;
     default:
       errorf("unknown expression node: %d", node->kind);
     }
   }
+}
+
+static int placement_variables(node_t *node, int offset) {
+  for (map_entry_t *e = node->vars->top; e != NULL; e = e->next) {
+    node_t *n = (node_t *)e->val;
+    offset += n->type->total_size;
+    align(&offset, 8);
+    n->voffset = offset;
+  }
+  int max_offset = offset;
+  for (int i = 0; i < node->child_blocks->size; i++) {
+    node_t *b = (node_t *)node->child_blocks->data[i];
+    max_offset = max(max_offset, placement_variables(b, offset));
+  }
+  return max_offset;
 }
 
 static void emit_data_section(parse_t *parse) {
@@ -323,6 +362,15 @@ void gen(parse_t *parse) {
     offset += n->type->total_size;
     align(&offset, 8);
     n->voffset = offset;
+    for (int i = 0; i < parse->statements->size; i++) {
+      node_t *n = (node_t *)parse->statements->data[i];
+      for (; n != NULL; n = n->next) {
+        if (n->kind != NODE_KIND_BLOCK) {
+          continue;
+        }
+        offset = placement_variables(n, offset);
+      }
+    }
   }
   emit_data_section(parse);
   emitf(".text");

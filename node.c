@@ -99,6 +99,26 @@ node_t *node_new_call(parse_t *parse, type_t *type, node_t *func, vector_t *args
   return node;
 }
 
+node_t *node_new_block(parse_t *parse, vector_t *statements, node_t *block) {
+  node_t *node = node_new(parse, NODE_KIND_BLOCK);
+  node->statements = statements;
+  node->vars = map_new();
+  node->parent_block = block;
+  if (block != NULL) {
+    vector_push(block->child_blocks, node);
+  }
+  node->child_blocks = vector_new();
+  return node;
+}
+
+node_t *node_new_if(parse_t *parse, node_t *cond, node_t *then_body, node_t *else_body) {
+  node_t *node = node_new(parse, NODE_KIND_IF);
+  node->cond = cond;
+  node->then_body = then_body;
+  node->else_body = else_body;
+  return node;
+}
+
 void node_free(node_t *node) {
   switch (node->kind) {
   case NODE_KIND_IDENTIFIER:
@@ -129,6 +149,13 @@ void node_free(node_t *node) {
     break;
   case NODE_KIND_CALL:
     vector_free(node->args);
+    break;
+  case NODE_KIND_BLOCK:
+    vector_free(node->statements);
+    map_free(node->vars);
+    vector_free(node->child_blocks);
+    break;
+  case NODE_KIND_IF:
     break;
   }
   free(node);
@@ -196,6 +223,25 @@ void node_debug(node_t *node) {
         printf(" ");
         node_debug((node_t *)node->args->data[i]);
       }
+    }
+    printf(")");
+    break;
+  case NODE_KIND_BLOCK:
+    printf("{");
+    for (int i = 0; i < node->statements->size; i++) {
+      node_debug((node_t *)node->statements->data[i]);
+      printf(";");
+    }
+    printf("}");
+    break;
+  case NODE_KIND_IF:
+    printf("(if ");
+    node_debug(node->cond);
+    printf(" ");
+    node_debug(node->then_body);
+    if (node->else_body) {
+      printf(" ");
+      node_debug(node->else_body);
     }
     printf(")");
     break;

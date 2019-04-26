@@ -77,6 +77,11 @@ enum {
   TOKEN_KIND_UNKNOWN,
 };
 
+enum {
+  TOKEN_KEYWORD_IF = 256,
+  TOKEN_KEYWORD_ELSE,
+};
+
 typedef struct token token_t;
 struct token {
   int kind;
@@ -112,6 +117,8 @@ enum {
   NODE_KIND_BINARY_OP,
   NODE_KIND_UNARY_OP,
   NODE_KIND_CALL,
+  NODE_KIND_BLOCK,
+  NODE_KIND_IF,
 };
 
 typedef struct node node_t;
@@ -157,6 +164,19 @@ struct node {
       node_t *func;
       vector_t *args;
     };
+    // Block
+    struct {
+      vector_t *statements;
+      map_t *vars;
+      node_t *parent_block;
+      vector_t *child_blocks;
+    };
+    // If statement
+    struct {
+      node_t *cond;
+      node_t *then_body;
+      node_t *else_body;
+    };
   };
 };
 
@@ -168,6 +188,7 @@ struct parse {
   vector_t *nodes;
   map_t *vars;
   map_t *types;
+  node_t *current_scope;
   // builtin types
   type_t *type_char;
   type_t *type_int;
@@ -242,6 +263,8 @@ node_t *node_new_declaration(parse_t *parse, type_t *type, node_t *var, node_t *
 node_t *node_new_binary_op(parse_t *parse, type_t *type, int op, node_t *left, node_t *right);
 node_t *node_new_unary_op(parse_t *parse, type_t *type, int op, node_t *operand);
 node_t *node_new_call(parse_t *parse, type_t *type, node_t *func, vector_t *args);
+node_t *node_new_block(parse_t *parse, vector_t *statements, node_t *parent);
+node_t *node_new_if(parse_t *parse, node_t *cond, node_t *then_body, node_t *else_body);
 void node_free(node_t *node);
 void node_debug(node_t *node);
 
