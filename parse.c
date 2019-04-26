@@ -10,6 +10,7 @@ static type_t *declaration_specifier(parse_t *parse);
 static node_t *variable_declarator(parse_t *parse, type_t *type);
 static type_t *declarator(parse_t *parse, type_t *type, char **namep);
 static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep);
+static node_t *conditional_expression(parse_t *parse);
 static node_t *additive_expression(parse_t *parse);
 static node_t *multiplicative_expression(parse_t *parse);
 static node_t *unary_expression(parse_t *parse);
@@ -21,21 +22,37 @@ static node_t *assignment_expression(parse_t *parse);
 static node_t *declaration(parse_t *parse, type_t *type);
 static node_t *init_declarator(parse_t *parse, type_t *type);
 static node_t *initializer(parse_t *parse, type_t *type);
+static node_t *compound_statement(parse_t *parse);
 static node_t *statement(parse_t *parse);
 static node_t *expression_statement(parse_t *parse);
+static node_t *selection_statement(parse_t *parse);
 
 static void add_var(parse_t *parse, node_t *var) {
-  map_entry_t *e = map_find(parse->vars, var->vname);
+  map_t *vars;
+  if (parse->current_scope) {
+    vars = parse->current_scope->vars;
+  } else {
+    vars = parse->vars;
+  }
+  map_entry_t *e = map_find(vars, var->vname);
   if (e != NULL) {
     errorf("already defined: %s", var->vname);
   }
-  map_add(parse->vars, var->vname, var);
+  map_add(vars, var->vname, var);
 }
 
-static node_t *find_variable(parse_t *parse, char *identifier) {
-  map_entry_t *e = map_find(parse->vars, identifier);
-  if (e == NULL) {
-    return NULL;
+static node_t *find_variable(parse_t *parse, node_t *scope, char *identifier) {
+  map_entry_t *e;
+  if (scope) {
+    e = map_find(scope->vars, identifier);
+    if (e == NULL) {
+      return find_variable(parse, scope->parent_block, identifier);
+    }
+  } else {
+    e = map_find(parse->vars, identifier);
+    if (e == NULL) {
+      return NULL;
+    }
   }
   return (node_t *)e->val;
 }
@@ -154,6 +171,21 @@ static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep) {
   return type;
 }
 
+static node_t *conditional_expression(parse_t *parse) {
+  node_t *node = additive_expression(parse);
+  if (lex_next_keyword_is(parse->lex, '?')) {
+    node_t *then_body = expression(parse);
+    lex_expect_keyword_is(parse->lex, ':');
+    node_t *else_body = conditional_expression(parse);
+    if (!type_is_assignable(then_body->type, else_body->type)) {
+      errorf("incompatible operand types ('%s' and '%s')", then_body->type->name, else_body->type->name);
+    }
+    node = node_new_if(parse, node, then_body, else_body);
+    node->type = then_body->type;
+  }
+  return node;
+}
+
 static node_t *additive_expression(parse_t *parse) {
   node_t *node = multiplicative_expression(parse);
   for (;;) {
@@ -238,7 +270,7 @@ static node_t *postfix_expression(parse_t *parse) {
       vector_t *args = func_args(parse);
       node = node_new_call(parse, parse->type_int, node, args);
     } else if (node->kind == NODE_KIND_IDENTIFIER) {
-      node_t *var = find_variable(parse, node->identifier);
+      node_t *var = find_variable(parse, parse->current_scope, node->identifier);
       if (var == NULL) {
         errorf("Undefined varaible: %s", node->identifier);
       }
@@ -301,7 +333,7 @@ static node_t *expression(parse_t *parse) {
 }
 
 static node_t *assignment_expression(parse_t *parse) {
-  node_t *node = additive_expression(parse);
+  node_t *node = conditional_expression(parse);
   for (;;) {
     if (!lex_next_keyword_is(parse->lex, '=')) {
       break;
@@ -372,7 +404,32 @@ static node_t *initializer(parse_t *parse, type_t *type) {
   return init;
 }
 
+static node_t *compound_statement(parse_t *parse) {
+  vector_t *statements = vector_new();
+  node_t *node = node_new_block(parse, statements, parse->current_scope);
+  parse->current_scope = node;
+  while (!lex_next_keyword_is(parse->lex, '}')) {
+    type_t *type = declaration_specifier(parse);
+    if (type != NULL) {
+      if (lex_next_keyword_is(parse->lex, ';')) {
+        continue;
+      }
+      vector_push(statements, declaration(parse, type));
+    } else {
+      vector_push(statements, statement(parse));
+    }
+  }
+  parse->current_scope = node->parent_block;
+  return node;
+}
+
 static node_t *statement(parse_t *parse) {
+  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_IF)) {
+    return selection_statement(parse);
+  }
+  if (lex_next_keyword_is(parse->lex, '{')) {
+    return compound_statement(parse);
+  }
   return expression_statement(parse);
 }
 
@@ -385,6 +442,18 @@ static node_t *expression_statement(parse_t *parse) {
   return node;
 }
 
+static node_t *selection_statement(parse_t *parse) {
+  lex_expect_keyword_is(parse->lex, '(');
+  node_t *cond = expression(parse);
+  lex_expect_keyword_is(parse->lex, ')');
+  node_t *then_body = statement(parse);
+  node_t *else_body = NULL;
+  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_ELSE)) {
+    else_body = statement(parse);
+  }
+  return node_new_if(parse, cond, then_body, else_body);
+}
+
 static parse_t *parse_new(FILE *fp) {
   parse_t *parse = (parse_t *)malloc(sizeof (parse_t));
   parse->lex = lex_new(fp);
@@ -393,6 +462,7 @@ static parse_t *parse_new(FILE *fp) {
   parse->nodes = vector_new();
   parse->vars = map_new();
   parse->types = map_new();
+  parse->current_scope = NULL;
 
   parse->type_char = type_new("char", TYPE_KIND_CHAR, NULL);
   type_add(parse, parse->type_char->name, parse->type_char);

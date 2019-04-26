@@ -225,12 +225,21 @@ token_t *lex_get_token(lex_t *lex) {
   }
   if (isalpha(c) || c == '_') {
     unget_char(lex, c);
-    return read_identifier(lex);
+    token_t *token = read_identifier(lex);
+    assert(token->kind == TOKEN_KIND_IDENTIFIER);
+    if (strcmp("if", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_IF);
+    }
+    if (strcmp("else", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_ELSE);
+    }
+    return token;
   }
   switch (c) {
   case '+': case '-': case '*': case '/': case '%':
   case '(': case ')': case ',': case ';': case '=':
   case '&': case '[': case ']': case '{': case '}':
+  case '?': case ':':
     return new_keyword(lex, c);
   case '\0':
     return token_new(lex, TOKEN_KIND_EOF);
