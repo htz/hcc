@@ -20,7 +20,9 @@ static void emit_unary_op_expression(parse_t *parse, node_t *node);
 static void emit_declaration_init(parse_t *parse, node_t *var, node_t *init);
 static void emit_call(parse_t *parse, node_t *node);
 static void emit_if(parse_t *parse, node_t *node);
+static void emit_return(parse_t *parse, node_t *node);
 static void emit_expression(parse_t *parse, node_t *node);
+static void emit_function(parse_t *parse, node_t *node);
 static void emit_data_section(parse_t *parse);
 
 static void emitf_noindent(char *fmt, ...) {
@@ -278,6 +280,14 @@ static void emit_if(parse_t *parse, node_t *node) {
   }
 }
 
+static void emit_return(parse_t *parse, node_t *node) {
+  if (node->retval) {
+    emit_expression(parse, node->retval);
+  }
+  emitf("leave");
+  emitf("ret");
+}
+
 static void emit_expression(parse_t *parse, node_t *node) {
   for (; node; node = node->next) {
     switch (node->kind) {
@@ -321,6 +331,9 @@ static void emit_expression(parse_t *parse, node_t *node) {
     case NODE_KIND_IF:
       emit_if(parse, node);
       break;
+    case NODE_KIND_RETURN:
+      emit_return(parse, node);
+      break;
     default:
       errorf("unknown expression node: %d", node->kind);
     }
@@ -330,6 +343,9 @@ static void emit_expression(parse_t *parse, node_t *node) {
 static int placement_variables(node_t *node, int offset) {
   for (map_entry_t *e = node->vars->top; e != NULL; e = e->next) {
     node_t *n = (node_t *)e->val;
+    if (n->voffset != 0) {
+      continue;
+    }
     offset += n->type->total_size;
     align(&offset, 8);
     n->voffset = offset;
@@ -340,6 +356,36 @@ static int placement_variables(node_t *node, int offset) {
     max_offset = max(max_offset, placement_variables(b, offset));
   }
   return max_offset;
+}
+
+static void emit_function(parse_t *parse, node_t *node) {
+  emitf(".text");
+  emitf_noindent(".global %s", node->fvar->vname);
+  emitf_noindent("%s:", node->fvar->vname);
+  emit_push(parse, "rbp");
+  emitf("mov %%rsp, %%rbp");
+
+  int offset = 0, spoffset = 16;
+  int i, iargs = 0;
+  for (i = 0; i < node->fargs->size; i++) {
+    node_t *n = (node_t *)node->fargs->data[i];
+    if (iargs < 6) {
+      offset += 8;
+      align(&offset, 8);
+      n->voffset = offset;
+      emitf("mov %%%s, %d(%%rbp)", REGS[iargs++], -offset);
+    } else {
+      n->voffset = -spoffset;
+      spoffset += 8;
+    }
+  }
+  offset = placement_variables(node->fbody, offset);
+  align(&offset, 8);
+
+  emitf("sub $%d, %%rsp", offset);
+  emit_expression(parse, node->fbody);
+  emitf("leave");
+  emitf("ret");
 }
 
 static void emit_data_section(parse_t *parse) {
@@ -356,32 +402,20 @@ static void emit_data_section(parse_t *parse) {
 }
 
 void gen(parse_t *parse) {
-  int offset = 0;
-  for (map_entry_t *e = parse->vars->top; e != NULL; e = e->next) {
-    node_t *n = (node_t *)e->val;
-    offset += n->type->total_size;
-    align(&offset, 8);
-    n->voffset = offset;
-    for (int i = 0; i < parse->statements->size; i++) {
-      node_t *n = (node_t *)parse->statements->data[i];
-      for (; n != NULL; n = n->next) {
-        if (n->kind != NODE_KIND_BLOCK) {
-          continue;
-        }
-        offset = placement_variables(n, offset);
-      }
+  emit_data_section(parse);
+  for (int i = 0; i < parse->statements->size; i++) {
+    node_t *node = (node_t *)parse->statements->data[i];
+    switch (node->kind) {
+    case NODE_KIND_NOP:
+      break;
+    case NODE_KIND_FUNCTION:
+      emit_function(parse, node);
+      break;
+    case NODE_KIND_DECLARATION:
+      errorf("declation has not implemented yet");
+      break;
+    default:
+      errorf("the node type is not supported at toplevel");
     }
   }
-  emit_data_section(parse);
-  emitf(".text");
-  emitf_noindent(".global mymain");
-  emitf_noindent("mymain:");
-  emit_push(parse, "rbp");
-  emitf("mov %%rsp, %%rbp");
-  emitf("sub $%d, %%rsp", offset);
-  for (int i = 0; i < parse->statements->size; i++) {
-    emit_expression(parse, (node_t *)parse->statements->data[i]);
-  }
-  emitf("leave");
-  emitf("ret");
 }
