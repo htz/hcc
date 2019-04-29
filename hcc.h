@@ -51,6 +51,7 @@ struct string {
 };
 
 enum {
+  TYPE_KIND_VOID,
   TYPE_KIND_CHAR,
   TYPE_KIND_INT,
   TYPE_KIND_PTR,
@@ -80,6 +81,7 @@ enum {
 enum {
   TOKEN_KEYWORD_IF = 256,
   TOKEN_KEYWORD_ELSE,
+  TOKEN_KEYWORD_RETURN,
 };
 
 typedef struct token token_t;
@@ -119,6 +121,8 @@ enum {
   NODE_KIND_CALL,
   NODE_KIND_BLOCK,
   NODE_KIND_IF,
+  NODE_KIND_FUNCTION,
+  NODE_KIND_RETURN,
 };
 
 typedef struct node node_t;
@@ -159,6 +163,12 @@ struct node {
       node_t *dec_var;
       node_t *dec_init;
     };
+    // Declaration function
+    struct {
+      node_t *fvar;
+      vector_t *fargs;
+      node_t *fbody;
+    };
     // Function call
     struct {
       node_t *func;
@@ -177,6 +187,8 @@ struct node {
       node_t *then_body;
       node_t *else_body;
     };
+    // return statement
+    node_t *retval;
   };
 };
 
@@ -188,8 +200,10 @@ struct parse {
   vector_t *nodes;
   map_t *vars;
   map_t *types;
+  node_t *current_function;
   node_t *current_scope;
   // builtin types
+  type_t *type_void;
   type_t *type_char;
   type_t *type_int;
 };
@@ -265,6 +279,8 @@ node_t *node_new_unary_op(parse_t *parse, type_t *type, int op, node_t *operand)
 node_t *node_new_call(parse_t *parse, type_t *type, node_t *func, vector_t *args);
 node_t *node_new_block(parse_t *parse, vector_t *statements, node_t *parent);
 node_t *node_new_if(parse_t *parse, node_t *cond, node_t *then_body, node_t *else_body);
+node_t *node_new_function(parse_t *parse, node_t *fvar, vector_t *fargs, node_t *fbody);
+node_t *node_new_return(parse_t *parse, type_t *type, node_t *retval);
 void node_free(node_t *node);
 void node_debug(node_t *node);
 

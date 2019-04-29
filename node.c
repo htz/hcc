@@ -119,6 +119,22 @@ node_t *node_new_if(parse_t *parse, node_t *cond, node_t *then_body, node_t *els
   return node;
 }
 
+node_t *node_new_function(parse_t *parse, node_t *fvar, vector_t *fargs, node_t *fbody) {
+  node_t *node = node_new(parse, NODE_KIND_FUNCTION);
+  node->type = NULL;
+  node->fvar = fvar;
+  node->fargs = fargs;
+  node->fbody = fbody;
+  return node;
+}
+
+node_t *node_new_return(parse_t *parse, type_t *type, node_t *retval) {
+  node_t *node = node_new(parse, NODE_KIND_RETURN);
+  node->type = type;
+  node->retval = retval;
+  return node;
+}
+
 void node_free(node_t *node) {
   switch (node->kind) {
   case NODE_KIND_IDENTIFIER:
@@ -156,6 +172,11 @@ void node_free(node_t *node) {
     vector_free(node->child_blocks);
     break;
   case NODE_KIND_IF:
+    break;
+  case NODE_KIND_FUNCTION:
+    vector_free(node->fargs);
+    break;
+  case NODE_KIND_RETURN:
     break;
   }
   free(node);
@@ -242,6 +263,26 @@ void node_debug(node_t *node) {
     if (node->else_body) {
       printf(" ");
       node_debug(node->else_body);
+    }
+    printf(")");
+    break;
+  case NODE_KIND_FUNCTION:
+    printf("(%s->%s [", node->fvar->vname, node->fvar->type->name);
+    for (int i = 0; i < node->fargs->size; i++) {
+      node_debug((node_t *)node->fargs->data[i]);
+      if (i < node->fargs->size - 1) {
+        printf(" ");
+      }
+    }
+    printf("] ");
+    node_debug(node->fbody);
+    printf(")");
+    break;
+  case NODE_KIND_RETURN:
+    printf("(return");
+    if (node->retval) {
+      printf(" ");
+      node_debug(node->retval);
     }
     printf(")");
     break;

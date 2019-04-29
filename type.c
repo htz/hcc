@@ -10,6 +10,9 @@ type_t *type_new_with_size(char *name, int kind, type_t *parent, int size) {
   t->kind = kind;
   t->parent = parent;
   switch (kind) {
+  case TYPE_KIND_VOID:
+    t->bytes = 1;
+    break;
   case TYPE_KIND_CHAR:
     t->bytes = 1;
     break;

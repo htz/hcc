@@ -6,6 +6,8 @@
 #include <string.h>
 #include "hcc.h"
 
+static node_t *external_declaration(parse_t *parse);
+static node_t *function_definition(parse_t *parse, node_t *var);
 static type_t *declaration_specifier(parse_t *parse);
 static node_t *variable_declarator(parse_t *parse, type_t *type);
 static type_t *declarator(parse_t *parse, type_t *type, char **namep);
@@ -20,12 +22,13 @@ static node_t *primary_expression(parse_t *parse);
 static node_t *expression(parse_t *parse);
 static node_t *assignment_expression(parse_t *parse);
 static node_t *declaration(parse_t *parse, type_t *type);
-static node_t *init_declarator(parse_t *parse, type_t *type);
+static node_t *init_declarator(parse_t *parse, node_t *var);
 static node_t *initializer(parse_t *parse, type_t *type);
 static node_t *compound_statement(parse_t *parse);
 static node_t *statement(parse_t *parse);
 static node_t *expression_statement(parse_t *parse);
 static node_t *selection_statement(parse_t *parse);
+static node_t *jump_statement(parse_t *parse, int keyword);
 
 static void add_var(parse_t *parse, node_t *var) {
   map_t *vars;
@@ -102,6 +105,68 @@ static type_t *op_result(parse_t *parse, int op, type_t *left, type_t *right) {
     errorf("invalid operands to binary expression ('%s' and '%s')", left->name, right->name);
   }
   return type;
+}
+
+static node_t *external_declaration(parse_t *parse) {
+  type_t *type = declaration_specifier(parse);
+  if (type == NULL) {
+    errorf("unknown type name");
+  }
+  node_t *var = variable_declarator(parse, type);
+  if (lex_next_keyword_is(parse->lex, '(')) {
+    return function_definition(parse, var);
+  }
+
+  node_t *node = init_declarator(parse, var);
+  node_t *prev = node;
+  while (lex_next_keyword_is(parse->lex, ',')) {
+    var = variable_declarator(parse, type);
+    prev->next = init_declarator(parse, var);
+    prev = prev->next;
+  }
+  lex_expect_keyword_is(parse->lex, ';');
+  return node;
+}
+
+static node_t *function_parameter_declaration(parse_t *parse) {
+  type_t *type = declaration_specifier(parse);
+  if (type == NULL) {
+    errorf("unknown type name");
+  }
+  return variable_declarator(parse, type);
+}
+
+static node_t *function_definition(parse_t *parse, node_t *var) {
+  vector_t *fargs = vector_new();
+  node_t *node = node_new_function(parse, var, fargs, NULL);
+  parse->current_function = node;
+  token_t *token = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+  bool empty_args = false;
+  if (token != NULL) {
+    if (strcmp("void", token->identifier) == 0 && lex_next_keyword_is(parse->lex, ')')) {
+      empty_args = true;
+    } else {
+      lex_unget_token(parse->lex, token);
+    }
+  }
+  if (!empty_args && !lex_next_keyword_is(parse->lex, ')')) {
+    for (;;) {
+      node_t *arg = function_parameter_declaration(parse);
+      if (arg->type->kind == TYPE_KIND_VOID) {
+        errorf("void is not allowed");
+      }
+      add_var(parse, arg);
+      vector_push(fargs, arg);
+      if (lex_next_keyword_is(parse->lex, ')')) {
+        break;
+      }
+      lex_expect_keyword_is(parse->lex, ',');
+    }
+  }
+  lex_expect_keyword_is(parse->lex, '{');
+  node->fbody = compound_statement(parse);
+  parse->current_function = NULL;
+  return node;
 }
 
 static type_t *declaration_specifier(parse_t *parse) {
@@ -345,19 +410,23 @@ static node_t *assignment_expression(parse_t *parse) {
 }
 
 static node_t *declaration(parse_t *parse, type_t *type) {
-  node_t *node = init_declarator(parse, type);
+  node_t *var = variable_declarator(parse, type);
+  node_t *node = init_declarator(parse, var);
   node_t *prev = node;
   while (lex_next_keyword_is(parse->lex, ',')) {
-    prev->next = init_declarator(parse, type);
+    var = variable_declarator(parse, type);
+    prev->next = init_declarator(parse, var);
     prev = prev->next;
   }
   lex_expect_keyword_is(parse->lex, ';');
   return node;
 }
 
-static node_t *init_declarator(parse_t *parse, type_t *type) {
-  node_t *var = variable_declarator(parse, type);
+static node_t *init_declarator(parse_t *parse, node_t *var) {
   node_t *init = NULL;
+  if (var->type->kind == TYPE_KIND_VOID) {
+    errorf("void is not allowed");
+  }
   if (lex_next_keyword_is(parse->lex, '=')) {
     init = initializer(parse, var->type);
   }
@@ -427,6 +496,9 @@ static node_t *statement(parse_t *parse) {
   if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_IF)) {
     return selection_statement(parse);
   }
+  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_RETURN)) {
+    return jump_statement(parse, TOKEN_KEYWORD_RETURN);
+  }
   if (lex_next_keyword_is(parse->lex, '{')) {
     return compound_statement(parse);
   }
@@ -454,6 +526,32 @@ static node_t *selection_statement(parse_t *parse) {
   return node_new_if(parse, cond, then_body, else_body);
 }
 
+static node_t *jump_statement(parse_t *parse, int keyword) {
+  assert(parse->current_function != NULL);
+  if (keyword == TOKEN_KEYWORD_RETURN) {
+    node_t *var = parse->current_function->fvar;
+    assert(var != NULL);
+    type_t *type = var->type;
+    node_t *exp = NULL;
+    if (!lex_next_keyword_is(parse->lex, ';')) {
+      if (type->kind == TYPE_KIND_VOID) {
+        errorf("void function '%s' should not return a value", var->vname);
+      }
+      exp = expression(parse);
+      if (!type_is_assignable(exp->type, type)) {
+        errorf("different returning expression type from '%s' to '%s'", exp->type->name, type->name);
+      }
+      lex_expect_keyword_is(parse->lex, ';');
+    } else {
+      if (type->kind != TYPE_KIND_VOID) {
+        errorf("non-void function '%s' should return a value", var->vname);
+      }
+    }
+    return node_new_return(parse, parse->current_function->type, exp);
+  }
+  errorf("not implemented");
+}
+
 static parse_t *parse_new(FILE *fp) {
   parse_t *parse = (parse_t *)malloc(sizeof (parse_t));
   parse->lex = lex_new(fp);
@@ -464,6 +562,8 @@ static parse_t *parse_new(FILE *fp) {
   parse->types = map_new();
   parse->current_scope = NULL;
 
+  parse->type_void = type_new("void", TYPE_KIND_VOID, NULL);
+  map_add(parse->types, parse->type_void->name, parse->type_void);
   parse->type_char = type_new("char", TYPE_KIND_CHAR, NULL);
   type_add(parse, parse->type_char->name, parse->type_char);
   parse->type_int = type_new("int", TYPE_KIND_INT, NULL);
@@ -492,12 +592,7 @@ parse_t *parse_file(FILE *fp) {
     if (lex_next_token_is(parse->lex, TOKEN_KIND_EOF)) {
       break;
     }
-    type_t *type = declaration_specifier(parse);
-    if (type != NULL) {
-      vector_push(parse->statements, declaration(parse, type));
-    } else {
-      vector_push(parse->statements, statement(parse));
-    }
+    vector_push(parse->statements, external_declaration(parse));
   }
   return parse;
 }

@@ -233,6 +233,9 @@ token_t *lex_get_token(lex_t *lex) {
     if (strcmp("else", token->identifier) == 0) {
       return new_keyword(lex, TOKEN_KEYWORD_ELSE);
     }
+    if (strcmp("return", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_RETURN);
+    }
     return token;
   }
   switch (c) {
