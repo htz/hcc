@@ -58,11 +58,12 @@ node_t *node_new_init_list(parse_t *parse, type_t *type, vector_t *init) {
   return node;
 }
 
-node_t *node_new_variable(parse_t *parse, type_t *type, char *vname) {
+node_t *node_new_variable(parse_t *parse, type_t *type, char *vname, bool global) {
   node_t *node = node_new(parse, NODE_KIND_VARIABLE);
   node->type = type;
   node->vname = strdup(vname);
   node->voffset = 0;
+  node->global = global;
   return node;
 }
 

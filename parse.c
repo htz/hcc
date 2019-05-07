@@ -112,6 +112,10 @@ static node_t *external_declaration(parse_t *parse) {
   if (type == NULL) {
     errorf("unknown type name");
   }
+  if (lex_next_keyword_is(parse->lex, ';')) {
+    return node_new_nop(parse);
+  }
+
   node_t *var = variable_declarator(parse, type);
   if (lex_next_keyword_is(parse->lex, '(')) {
     return function_definition(parse, var);
@@ -198,7 +202,10 @@ static type_t *declarator_array(parse_t *parse, type_t *type) {
 static node_t *variable_declarator(parse_t *parse, type_t *type) {
   char *name;
   type = declarator(parse, type, &name);
-  return node_new_variable(parse, type, name);
+  if (parse->current_function) {
+    return node_new_variable(parse, type, name, false);
+  }
+  return node_new_variable(parse, type, name, true);
 }
 
 static type_t *declarator(parse_t *parse, type_t *type, char **namep) {
@@ -372,7 +379,12 @@ static node_t *primary_expression(parse_t *parse) {
   case TOKEN_KIND_INT:
     return node_new_int(parse, parse->type_int, token->ival);
   case TOKEN_KIND_STRING:
-    node = node_new_string(parse, token->sval, parse->data->size);
+    if (parse->current_function) {
+      node = node_new_string(parse, token->sval, parse->data->size);
+      vector_push(parse->data, node);
+    } else {
+      node = node_new_string(parse, token->sval, -1);
+    }
     for (;;) {
       token = lex_get_token(parse->lex);
       if (token->kind != TOKEN_KIND_STRING) {
@@ -381,7 +393,6 @@ static node_t *primary_expression(parse_t *parse) {
       }
       string_append(node->sval, token->sval->buf);
     }
-    vector_push(parse->data, node);
     return node;
   }
   errorf("unknown token: %s", token_str(token));

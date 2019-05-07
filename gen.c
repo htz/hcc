@@ -13,6 +13,7 @@ static void emit_pop(parse_t *parse, const char *reg);
 static void emit_int(parse_t *parse, node_t *node);
 static void emit_string(parse_t *parse, node_t *node);
 static void emit_string_data(string_t *str);
+static void emit_global_variable(parse_t *parse, node_t *node);
 static void emit_variable(parse_t *parse, node_t *node);
 static void emit_store(parse_t *parse, node_t *var);
 static void emit_binary_op_expression(parse_t *parse, node_t *node);
@@ -23,6 +24,7 @@ static void emit_if(parse_t *parse, node_t *node);
 static void emit_return(parse_t *parse, node_t *node);
 static void emit_expression(parse_t *parse, node_t *node);
 static void emit_function(parse_t *parse, node_t *node);
+static void emit_global(parse_t *parse, node_t *node);
 static void emit_data_section(parse_t *parse);
 
 static void emitf_noindent(char *fmt, ...) {
@@ -66,7 +68,32 @@ static void emit_string_data(string_t *str) {
   fprintf(stdout, "\"\n");
 }
 
+static void emit_global_variable(parse_t *parse, node_t *node) {
+  if (node->type->kind == TYPE_KIND_ARRAY) {
+    assert(node->type->parent != NULL);
+    emitf("lea %s(%%rip), %%rax", node->vname);
+    return;
+  }
+  switch (node->type->bytes) {
+  case 1:
+    emitf("movsbq %s(%%rip), %%rax", node->vname);
+    break;
+  case 4:
+    emitf("movslq %s(%%rip), %%rax", node->vname);
+    break;
+  case 8:
+    emitf("mov %s(%%rip), %%rax", node->vname);
+    break;
+  default:
+    errorf("invalid variable type");
+  }
+}
+
 static void emit_variable(parse_t *parse, node_t *node) {
+  if (node->global) {
+    emit_global_variable(parse, node);
+    return;
+  }
   if (node->type->kind == TYPE_KIND_ARRAY) {
     assert(node->type->parent != NULL);
     emitf("lea %d(%%rbp), %%rax", -node->voffset);
@@ -87,7 +114,29 @@ static void emit_variable(parse_t *parse, node_t *node) {
   }
 }
 
+static void emit_save_global(parse_t *parse, node_t *var, type_t *type) {
+  assert(type->kind != TYPE_KIND_ARRAY);
+  switch (type->bytes) {
+  case 1:
+    emitf("mov %%al, %s(%%rip)", var->vname);
+    break;
+  case 4:
+    emitf("mov %%eax, %s(%%rip)", var->vname);
+    break;
+  case 8:
+    emitf("mov %%rax, %s(%%rip)", var->vname);
+    break;
+  default:
+    errorf("invalid variable type");
+  }
+}
+
 static void emit_save(parse_t *parse, node_t *var, type_t *type, int base, int at) {
+  if (var->global) {
+    assert(base == 0 && at == 0);
+    emit_save_global(parse, var, type);
+    return;
+  }
   switch (type->bytes) {
   case 1:
     emitf("mov %%al, %d(%%rbp)", -var->voffset + base + type->bytes * at);
@@ -171,7 +220,11 @@ static void emit_unary_op_expression(parse_t *parse, node_t *node) {
   switch (node->op) {
   case '&':
     assert(node->operand->kind == NODE_KIND_VARIABLE);
-    emitf("lea %d(%%rbp), %%rax", -node->operand->voffset);
+    if (node->operand->global) {
+      emitf("lea %s(%%rip), %%rax", node->operand->vname);
+    } else {
+      emitf("lea %d(%%rbp), %%rax", -node->operand->voffset);
+    }
     break;
   case '*':
     emit_expression(parse, node->operand);
@@ -388,16 +441,92 @@ static void emit_function(parse_t *parse, node_t *node) {
   emitf("ret");
 }
 
-static void emit_data_section(parse_t *parse) {
-  vector_t *data = parse->data;
-  if (data->size == 0) {
+static void emit_global_data(parse_t *parse, type_t *type, node_t *val) {
+  if (val == NULL) {
+    emitf(".zero %d", type->total_size);
     return;
   }
+
+  if (val->kind == NODE_KIND_LITERAL) {
+    int n;
+    switch (val->type->kind) {
+    case TYPE_KIND_CHAR:
+    case TYPE_KIND_INT:
+      n = val->ival;
+      break;
+    default:
+      errorf("unsupported global variable initialize type");
+    }
+    switch (type->bytes) {
+    case 1:
+      emitf(".byte %d", n);
+      break;
+    case 4:
+      emitf(".long %d", n);
+      break;
+    case 8:
+      emitf(".quad %d", n);
+      break;
+    default:
+      errorf("invalid variable type");
+    }
+  } else if (val->kind == NODE_KIND_STRING_LITERAL) {
+    emitf_noindent(".STR_%d:", val->sid);
+    emit_string_data(val->sval);
+  } else {
+    errorf("invalid data node type");
+  }
+}
+
+static void emit_global_data_array(parse_t *parse, type_t *type, node_t *val) {
+  int size = 0;
+
+  if (val) {
+    if (val->type->parent->kind == TYPE_KIND_CHAR) {
+      size = val->type->size;
+      emit_string_data(val->sval);
+    } else {
+      size = val->init_list->size;
+      for (int i = 0; i < size; i++) {
+        assert(type->parent != NULL);
+        if (type->parent->kind == TYPE_KIND_ARRAY) {
+          emit_global_data_array(parse, type->parent, (node_t *)val->init_list->data[i]);
+        } else {
+          emit_global_data(parse, type->parent, (node_t *)val->init_list->data[i]);
+        }
+      }
+    }
+  }
+  int zero = type->total_size - type->parent->total_size * size;
+  if (zero > 0) {
+    emitf(".zero %d", zero);
+  }
+}
+
+static void emit_global(parse_t *parse, node_t *node) {
+  emitf_noindent(".global %s", node->dec_var->vname);
+  emitf_noindent("%s:", node->dec_var->vname);
+  if (node->type->kind == TYPE_KIND_ARRAY) {
+    emit_global_data_array(parse, node->type, node->dec_init);
+  } else {
+    emit_global_data(parse, node->type, node->dec_init);
+  }
+}
+
+static void emit_data_section(parse_t *parse) {
+  vector_t *data = parse->data;
   emitf(".data");
   for (int i = 0; i < data->size; i++) {
     node_t *n = (node_t *)data->data[i];
     emitf_noindent(".STR_%d:", n->sid);
     emit_string_data(n->sval);
+  }
+  for (int i = 0; i < parse->statements->size; i++) {
+    node_t *node = (node_t *)parse->statements->data[i];
+    if (node->kind != NODE_KIND_DECLARATION) {
+      continue;
+    }
+    emit_global(parse, node);
   }
 }
 
@@ -412,7 +541,6 @@ void gen(parse_t *parse) {
       emit_function(parse, node);
       break;
     case NODE_KIND_DECLARATION:
-      errorf("declation has not implemented yet");
       break;
     default:
       errorf("the node type is not supported at toplevel");

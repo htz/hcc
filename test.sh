@@ -79,6 +79,8 @@ testast "(f->int [] {(decl int a 3);(* (& a));})" 'int f(){int a=3;*&a;}'
 testast "(f->int [] {(decl int a 3);(decl int* b (& a));(* b);})" 'int f(){int a=3;int *b=&a;*b;}'
 testast '(f->int [] {(if 1 2);})' 'int f(){if(1)2;}'
 testast '(f->int [] {(if 1 {2;} (if 3 {4;} {5;}));})' 'int f(){if(1){2;}else if(3){4;}else{5;}}'
+testast '(decl int a 3)' 'int a=3;'
+testast '(decl int a 3), (decl int b);(decl char c)' 'int a=3,b;char c;'
 
 testast '(f->int [] {(a);})' 'int f(){a();}'
 testast '(f->int [] {(a 1 2 3 4 5 6);})' 'int f(){a(1,2,3,4,5,6);}'
@@ -108,6 +110,7 @@ test 60 'int mymain(){int a[3];*a=10;*(a+1)=20;*(a+2)=30;return *a+*(a+1)+*(a+2)
 test 33 'int mymain(){int a=11;{int a=100;{int a=200;a=222;}a=111;}return a*3;}'
 
 test 61 'int mymain(){int a=61;int *b=&a;return *b;}'
+test 62 'int a=62;int mymain(){int *b=&a;return *b;}'
 test 97 'int mymain(){char *c="ab";return *c;}'
 test 98 'int mymain(){char *c="ab"+1;return *c;}'
 test 99 'int mymain(){char s[4]="abc";char *c=s+2;return *c;}'
@@ -124,6 +127,11 @@ test 999 'int mymain(){int a=999;if(0){a=111;}else if(0){a=222;}return a;}'
 test 998 'int mymain(){return 998;return 999;}'
 
 test '1 2 3 4 5 6 7 8 9 10 0' 'int mymain(){printf("%d %d %d %d %d %d %d %d %d %d ",1,2,3,4,5,6,7,8,9,10);return 0;}'
+
+test 21 'int a=21;int mymain(){return a;}'
+test 22 'int a;int mymain(){a=22;return a;}'
+test 23 'int a[3];int mymain(){a[1]=23;return a[1];}'
+test 25 'int a[3]={24,25,26};int mymain(){return a[1];}'
 
 testfail 'int f(){0abc;}'
 testfail "int f(){'c;}"
@@ -149,5 +157,7 @@ testfail 'int f(){int a=10;int b[a];}'
 testfail 'int f(){int a[3];a[];}'
 testfail 'int f(){return;}'
 testfail 'void f(){return 0;}'
+
+testfail 'int i,i;'
 
 echo "All tests passed"
