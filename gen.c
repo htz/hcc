@@ -22,6 +22,11 @@ static void emit_unary_op_expression(parse_t *parse, node_t *node);
 static void emit_declaration_init(parse_t *parse, node_t *var, node_t *init);
 static void emit_call(parse_t *parse, node_t *node);
 static void emit_if(parse_t *parse, node_t *node);
+static void emit_while(parse_t *parse, node_t *node);
+static void emit_do(parse_t *parse, node_t *node);
+static void emit_for(parse_t *parse, node_t *node);
+static void emit_continue(parse_t *parse, node_t *node);
+static void emit_break(parse_t *parse, node_t *node);
 static void emit_return(parse_t *parse, node_t *node);
 static void emit_expression(parse_t *parse, node_t *node);
 static void emit_function(parse_t *parse, node_t *node);
@@ -486,6 +491,63 @@ static void emit_if(parse_t *parse, node_t *node) {
   }
 }
 
+static void emit_while(parse_t *parse, node_t *node) {
+  emitf(".L%p:", node);
+  emit_expression(parse, node->lcond);
+  emitf("test %%rax, %%rax");
+  emitf("je .L%p", node->lbody);
+  emit_expression(parse, node->lbody);
+  emitf("jmp .L%p", node);
+  emitf(".L%p:", node->lbody);
+}
+
+static void emit_do(parse_t *parse, node_t *node) {
+  emitf(".L%p:", node);
+  emit_expression(parse, node->lbody);
+  emit_expression(parse, node->lcond);
+  emitf("test %%rax, %%rax");
+  emitf("je .L%p", node->lbody);
+  emitf("jmp .L%p", node);
+  emitf(".L%p:", node->lbody);
+}
+
+static void emit_for(parse_t *parse, node_t *node) {
+  if (node->linit) {
+    emit_expression(parse, node->linit);
+  }
+  if (node->lcond) {
+    emitf("jmp .L%p", node->lcond);
+  }
+  emitf(".L%p:", node);
+  emit_expression(parse, node->lbody);
+  if (node->lstep) {
+    emitf(".L%p:", node->lstep);
+    emit_expression(parse, node->lstep);
+  }
+  if (node->lcond) {
+    emitf(".L%p:", node->lcond);
+    emit_expression(parse, node->lcond);
+    emitf("test %%rax, %%rax");
+    emitf("jne .L%p", node);
+  }
+  emitf(".L%p:", node->lbody);
+}
+
+static void emit_continue(parse_t *parse, node_t *node) {
+  assert(node->cscope->parent_node != NULL);
+  node_t *loop_node = node->cscope->parent_node;
+  if (loop_node->kind == NODE_KIND_FOR && loop_node->lstep != NULL) {
+    emitf("jmp .L%p", loop_node->lstep);
+  } else {
+    emitf("jmp .L%p", loop_node);
+  }
+}
+
+static void emit_break(parse_t *parse, node_t *node) {
+  assert(node->cscope->parent_node != NULL);
+  emitf("jmp .L%p", node->cscope->parent_node->lbody);
+}
+
 static void emit_return(parse_t *parse, node_t *node) {
   if (node->retval) {
     emit_expression(parse, node->retval);
@@ -537,8 +599,23 @@ static void emit_expression(parse_t *parse, node_t *node) {
     case NODE_KIND_IF:
       emit_if(parse, node);
       break;
+    case NODE_KIND_CONTINUE:
+      emit_continue(parse, node);
+      break;
+    case NODE_KIND_BREAK:
+      emit_break(parse, node);
+      break;
     case NODE_KIND_RETURN:
       emit_return(parse, node);
+      break;
+    case NODE_KIND_WHILE:
+      emit_while(parse, node);
+      break;
+    case NODE_KIND_DO:
+      emit_do(parse, node);
+      break;
+    case NODE_KIND_FOR:
+      emit_for(parse, node);
       break;
     default:
       errorf("unknown expression node: %d", node->kind);

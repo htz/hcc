@@ -82,6 +82,11 @@ enum {
   TOKEN_KEYWORD_IF = 256,
   TOKEN_KEYWORD_ELSE,
   TOKEN_KEYWORD_RETURN,
+  TOKEN_KEYWORD_WHILE,
+  TOKEN_KEYWORD_DO,
+  TOKEN_KEYWORD_FOR,
+  TOKEN_KEYWORD_BREAK,
+  TOKEN_KEYWORD_CONTINUE,
   OP_SAL,    // <<
   OP_SAR,    // >>
   OP_EQ,     // ==
@@ -135,7 +140,17 @@ enum {
   NODE_KIND_BLOCK,
   NODE_KIND_IF,
   NODE_KIND_FUNCTION,
+  NODE_KIND_CONTINUE,
+  NODE_KIND_BREAK,
   NODE_KIND_RETURN,
+  NODE_KIND_DO,
+  NODE_KIND_WHILE,
+  NODE_KIND_FOR,
+};
+
+enum {
+  BLOCK_KIND_DEFAULT,
+  BLOCK_KIND_LOOP,
 };
 
 typedef struct node node_t;
@@ -190,10 +205,12 @@ struct node {
     };
     // Block
     struct {
+      int bkind;
       vector_t *statements;
       map_t *vars;
       node_t *parent_block;
       vector_t *child_blocks;
+      node_t *parent_node;
     };
     // If statement
     struct {
@@ -201,8 +218,19 @@ struct node {
       node_t *then_body;
       node_t *else_body;
     };
+    // break/continue
+    struct {
+      node_t *cscope;
+    };
     // return statement
     node_t *retval;
+    // while/do/for
+    struct {
+      node_t *linit;
+      node_t *lcond;
+      node_t *lstep;
+      node_t *lbody;
+    };
   };
 };
 
@@ -216,6 +244,7 @@ struct parse {
   map_t *types;
   node_t *current_function;
   node_t *current_scope;
+  node_t *next_scope;
   // builtin types
   type_t *type_void;
   type_t *type_char;
@@ -291,10 +320,15 @@ node_t *node_new_declaration(parse_t *parse, type_t *type, node_t *var, node_t *
 node_t *node_new_binary_op(parse_t *parse, type_t *type, int op, node_t *left, node_t *right);
 node_t *node_new_unary_op(parse_t *parse, type_t *type, int op, node_t *operand);
 node_t *node_new_call(parse_t *parse, type_t *type, node_t *func, vector_t *args);
-node_t *node_new_block(parse_t *parse, vector_t *statements, node_t *parent);
+node_t *node_new_block(parse_t *parse, int kind, vector_t *statements, node_t *parent);
 node_t *node_new_if(parse_t *parse, node_t *cond, node_t *then_body, node_t *else_body);
 node_t *node_new_function(parse_t *parse, node_t *fvar, vector_t *fargs, node_t *fbody);
+node_t *node_new_continue(parse_t *parse);
+node_t *node_new_break(parse_t *parse);
 node_t *node_new_return(parse_t *parse, type_t *type, node_t *retval);
+node_t *node_new_while(parse_t *parse, node_t *cond, node_t *body);
+node_t *node_new_do(parse_t *parse, node_t *cond, node_t *body);
+node_t *node_new_for(parse_t *parse, node_t *init, node_t *cond, node_t *step, node_t *body);
 void node_free(node_t *node);
 void node_debug(node_t *node);
 

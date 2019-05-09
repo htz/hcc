@@ -89,6 +89,12 @@ testast '(f->int [] {(return 1);})' 'int f(){return 1;}'
 testast '(f->void [] {(return);})' 'void f(){return;}'
 testast '(f->void [] {})' 'void f(void){}'
 
+testast '(f->void [] {(while 1 4);})' 'void f(){while(1)4;}'
+testast '(f->void [] {(do-while 4 1);})' 'void f(){do 4;while(1);}'
+testast '(f->void [] {(for 1 2 3 {4;});})' 'void f(){for(1;2;3)4;}'
+testast '(f->void [] {(for () () () {1;});})' 'void f(){for(;;)1;}'
+testast '(f->void [] {(for () () () {(continue);(break);});})' 'void f(){for(;;){continue;break;}}'
+
 test 0 'int mymain(){return 0;}'
 
 test 3 'int mymain(){return 1+2;}'
@@ -157,6 +163,12 @@ test 22 'int a;int mymain(){a=22;return a;}'
 test 23 'int a[3];int mymain(){a[1]=23;return a[1];}'
 test 25 'int a[3]={24,25,26};int mymain(){return a[1];}'
 
+test 100 'int mymain(){int i=0;while(i<100)i++;return i;}'
+test 100 'int mymain(){int i=0;do{i++;}while(i<100);return i;}'
+test 100 'int mymain(){int i;for(i=0;i<100;i++){i++;}return i;}'
+test 1 'int mymain(){int i=0;while(i<100){i++;break;}return i;}'
+test '1 3 5 7 9 0' 'int mymain(){int i;for(i=0;i<10;i++){if(i%2==0){continue;}printf("%d ",i);}return 0;}'
+
 testfail 'int f(){0abc;}'
 testfail "int f(){'c;}"
 testfail "int f(){'cc';}"
@@ -183,5 +195,8 @@ testfail 'int f(){return;}'
 testfail 'void f(){return 0;}'
 
 testfail 'int i,i;'
+testfail 'void f(){for(int a;;){1;}a;}'
+testfail 'void f(){continue;}'
+testfail 'void f(){break;}'
 
 echo "All tests passed"

@@ -245,6 +245,21 @@ token_t *lex_get_token(lex_t *lex) {
     if (strcmp("return", token->identifier) == 0) {
       return new_keyword(lex, TOKEN_KEYWORD_RETURN);
     }
+    if (strcmp("while", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_WHILE);
+    }
+    if (strcmp("do", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_DO);
+    }
+    if (strcmp("for", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_FOR);
+    }
+    if (strcmp("break", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_BREAK);
+    }
+    if (strcmp("continue", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_CONTINUE);
+    }
     return token;
   }
   switch (c) {
