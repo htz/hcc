@@ -13,6 +13,14 @@ static node_t *variable_declarator(parse_t *parse, type_t *type);
 static type_t *declarator(parse_t *parse, type_t *type, char **namep);
 static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep);
 static node_t *conditional_expression(parse_t *parse);
+static node_t *logical_or_expression(parse_t *parse);
+static node_t *logical_and_expression(parse_t *parse);
+static node_t *inclusive_or_expression(parse_t *parse);
+static node_t *exclusive_or_expression(parse_t *parse);
+static node_t *and_expression(parse_t *parse);
+static node_t *equality_expression(parse_t *parse);
+static node_t *relational_expression(parse_t *parse);
+static node_t *shift_expression(parse_t *parse);
 static node_t *additive_expression(parse_t *parse);
 static node_t *multiplicative_expression(parse_t *parse);
 static node_t *unary_expression(parse_t *parse);
@@ -78,7 +86,11 @@ static type_t *op_result(parse_t *parse, int op, type_t *left, type_t *right) {
       break;
     case TYPE_KIND_PTR:
     case TYPE_KIND_ARRAY:
-      if (op != '+' && op != '-' && op != '=') {
+      if (
+        op != '+' && op != ('+' | OP_ASSIGN_MASK) &&
+        op != '-' && op != ('-' | OP_ASSIGN_MASK) &&
+        op != '='
+      ) {
         errorf("invalid operands to binary %c", op);
       }
       type = right;
@@ -244,7 +256,7 @@ static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep) {
 }
 
 static node_t *conditional_expression(parse_t *parse) {
-  node_t *node = additive_expression(parse);
+  node_t *node = logical_or_expression(parse);
   if (lex_next_keyword_is(parse->lex, '?')) {
     node_t *then_body = expression(parse);
     lex_expect_keyword_is(parse->lex, ':');
@@ -254,6 +266,121 @@ static node_t *conditional_expression(parse_t *parse) {
     }
     node = node_new_if(parse, node, then_body, else_body);
     node->type = then_body->type;
+  }
+  return node;
+}
+
+static node_t *logical_or_expression(parse_t *parse) {
+  node_t *node = logical_and_expression(parse);
+  for (;;) {
+    if (!lex_next_keyword_is(parse->lex, OP_OROR)) {
+      break;
+    }
+    node_t *right = logical_and_expression(parse);
+    node = node_new_binary_op(parse, parse->type_int, OP_OROR, node, right);
+  }
+  return node;
+}
+
+static node_t *logical_and_expression(parse_t *parse) {
+  node_t *node = inclusive_or_expression(parse);
+  for (;;) {
+    if (!lex_next_keyword_is(parse->lex, OP_ANDAND)) {
+      break;
+    }
+    node_t *right = inclusive_or_expression(parse);
+    node = node_new_binary_op(parse, parse->type_int, OP_ANDAND, node, right);
+  }
+  return node;
+}
+
+static node_t *inclusive_or_expression(parse_t *parse) {
+  node_t *node = exclusive_or_expression(parse);
+  for (;;) {
+    if (!lex_next_keyword_is(parse->lex, '|')) {
+      break;
+    }
+    node_t *right = exclusive_or_expression(parse);
+    node = node_new_binary_op(parse, parse->type_int, '|', node, right);
+  }
+  return node;
+}
+
+static node_t *exclusive_or_expression(parse_t *parse) {
+  node_t *node = and_expression(parse);
+  for (;;) {
+    if (!lex_next_keyword_is(parse->lex, '^')) {
+      break;
+    }
+    node_t *right = and_expression(parse);
+    node = node_new_binary_op(parse, parse->type_int, '^', node, right);
+  }
+  return node;
+}
+
+static node_t *and_expression(parse_t *parse) {
+  node_t *node = equality_expression(parse);
+  for (;;) {
+    if (!lex_next_keyword_is(parse->lex, '&')) {
+      break;
+    }
+    node_t *right = equality_expression(parse);
+    node = node_new_binary_op(parse, parse->type_int, '&', node, right);
+  }
+  return node;
+}
+
+static node_t *equality_expression(parse_t *parse) {
+  node_t *node = relational_expression(parse);
+  for (;;) {
+    int op;
+    if (lex_next_keyword_is(parse->lex, OP_EQ)) {
+      op = OP_EQ;
+    } else if (lex_next_keyword_is(parse->lex, OP_NE)) {
+      op = OP_NE;
+    } else {
+      break;
+    }
+    node_t *right = relational_expression(parse);
+    node = node_new_binary_op(parse, parse->type_int, op, node, right);
+  }
+  return node;
+}
+
+static node_t *relational_expression(parse_t *parse) {
+  node_t *node = shift_expression(parse);
+  for (;;) {
+    int op;
+    if (lex_next_keyword_is(parse->lex, '<')) {
+      op = '<';
+    } else if (lex_next_keyword_is(parse->lex, OP_LE)) {
+      op = OP_LE;
+    } else if (lex_next_keyword_is(parse->lex, '>')) {
+      op = '>';
+    } else if (lex_next_keyword_is(parse->lex, OP_GE)) {
+      op = OP_GE;
+    } else {
+      break;
+    }
+    node_t *right = shift_expression(parse);
+    node = node_new_binary_op(parse, parse->type_int, op, node, right);
+  }
+  return node;
+}
+
+static node_t *shift_expression(parse_t *parse) {
+  node_t *node = additive_expression(parse);
+  for (;;) {
+    int op;
+    if (lex_next_keyword_is(parse->lex, OP_SAL)) {
+      op = OP_SAL;
+    } else if (lex_next_keyword_is(parse->lex, OP_SAR)) {
+      op = OP_SAR;
+    } else {
+      break;
+    }
+    node_t *right = additive_expression(parse);
+    node = node_new_binary_op(parse, node->type, op, node, right);
   }
   return node;
 }
@@ -305,7 +432,48 @@ static node_t *multiplicative_expression(parse_t *parse) {
 }
 
 static node_t *unary_expression(parse_t *parse) {
-  if (lex_next_keyword_is(parse->lex, '*')) {
+  if (lex_next_keyword_is(parse->lex, OP_INC)) {
+    node_t *node = unary_expression(parse);
+    if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*')) {
+      return node_new_unary_op(parse, node->type, OP_INC, node);
+    } else {
+      errorf("expression is not assignable");
+    }
+  } else if (lex_next_keyword_is(parse->lex, OP_DEC)) {
+    node_t *node = unary_expression(parse);
+    if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*')) {
+      return node_new_unary_op(parse, node->type, OP_DEC, node);
+    } else {
+      errorf("expression is not assignable");
+    }
+  } else if (lex_next_keyword_is(parse->lex, '+')) {
+    node_t *node = unary_expression(parse);
+    if (node->kind == NODE_KIND_LITERAL && node->type->kind == TYPE_KIND_INT) {
+      return node;
+    }
+    return node_new_unary_op(parse, node->type, '+', node);
+  } else if (lex_next_keyword_is(parse->lex, '-')) {
+    node_t *node = unary_expression(parse);
+    if (node->kind == NODE_KIND_LITERAL && node->type->kind == TYPE_KIND_INT) {
+      node->ival *= -1;
+      return node;
+    }
+    return node_new_unary_op(parse, node->type, '-', node);
+  } else if (lex_next_keyword_is(parse->lex, '~')) {
+    node_t *node = unary_expression(parse);
+    if (node->kind == NODE_KIND_LITERAL && node->type->kind == TYPE_KIND_INT) {
+      node->ival = ~node->ival;
+      return node;
+    }
+    return node_new_unary_op(parse, node->type, '~', node);
+  } else if (lex_next_keyword_is(parse->lex, '!')) {
+    node_t *node = unary_expression(parse);
+    if (node->kind == NODE_KIND_LITERAL && node->type->kind == TYPE_KIND_INT) {
+      node->ival = !node->ival;
+      return node;
+    }
+    return node_new_unary_op(parse, node->type, '!', node);
+  } else if (lex_next_keyword_is(parse->lex, '*')) {
     node_t *node = unary_expression(parse);
     if (node->type->parent == NULL) {
       errorf("pointer type expected, but got %s", node->type->name);
@@ -314,7 +482,11 @@ static node_t *unary_expression(parse_t *parse) {
   } else if (lex_next_keyword_is(parse->lex, '&')) {
     node_t *node = unary_expression(parse);
     type_t *type = type_get_ptr(parse, node->type);
-    return node_new_unary_op(parse, type, '&', node);
+    if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*')) {
+      return node_new_unary_op(parse, type, '&', node);
+    } else {
+      errorf("cannot take the address of an rvalue of type '%s'", type->name);
+    }
   }
   return postfix_expression(parse);
 }
@@ -355,6 +527,18 @@ static node_t *postfix_expression(parse_t *parse) {
       node = node_new_binary_op(parse, type, '+', node, expression(parse));
       lex_expect_keyword_is(parse->lex, ']');
       node = node_new_unary_op(parse, type->parent, '*', node);
+    } else if (lex_next_keyword_is(parse->lex, OP_INC)) {
+      if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*')) {
+        node = node_new_unary_op(parse, node->type, OP_PINC, node);
+      } else {
+        errorf("expression is not assignable");
+      }
+    } else if (lex_next_keyword_is(parse->lex, OP_DEC)) {
+      if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*')) {
+        node = node_new_unary_op(parse, node->type, OP_PDEC, node);
+      } else {
+        errorf("expression is not assignable");
+      }
     } else {
       break;
     }
@@ -411,11 +595,39 @@ static node_t *expression(parse_t *parse) {
 static node_t *assignment_expression(parse_t *parse) {
   node_t *node = conditional_expression(parse);
   for (;;) {
-    if (!lex_next_keyword_is(parse->lex, '=')) {
+    int op;
+    if (lex_next_keyword_is(parse->lex, '=')) {
+      op = '=';
+    } else if (lex_next_keyword_is(parse->lex, '+' | OP_ASSIGN_MASK)) {
+      op = '+' | OP_ASSIGN_MASK;
+    } else if (lex_next_keyword_is(parse->lex, '-' | OP_ASSIGN_MASK)) {
+      op = '-' | OP_ASSIGN_MASK;
+    } else if (lex_next_keyword_is(parse->lex, '*' | OP_ASSIGN_MASK)) {
+      op = '*' | OP_ASSIGN_MASK;
+    } else if (lex_next_keyword_is(parse->lex, '/' | OP_ASSIGN_MASK)) {
+      op = '/' | OP_ASSIGN_MASK;
+    } else if (lex_next_keyword_is(parse->lex, '%' | OP_ASSIGN_MASK)) {
+      op = '%' | OP_ASSIGN_MASK;
+    } else if (lex_next_keyword_is(parse->lex, '&' | OP_ASSIGN_MASK)) {
+      op = '&' | OP_ASSIGN_MASK;
+    } else if (lex_next_keyword_is(parse->lex, '|' | OP_ASSIGN_MASK)) {
+      op = '|' | OP_ASSIGN_MASK;
+    } else if (lex_next_keyword_is(parse->lex, '^' | OP_ASSIGN_MASK)) {
+      op = '^' | OP_ASSIGN_MASK;
+    } else if (lex_next_keyword_is(parse->lex, OP_SAL | OP_ASSIGN_MASK)) {
+      op = OP_SAL | OP_ASSIGN_MASK;
+    } else if (lex_next_keyword_is(parse->lex, OP_SAR | OP_ASSIGN_MASK)) {
+      op = OP_SAR | OP_ASSIGN_MASK;
+    } else {
       break;
     }
-    node_t *right = assignment_expression(parse);
-    node = node_new_binary_op(parse, right->type, '=', node, right);
+    if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*')) {
+      node_t *right = assignment_expression(parse);
+      type_t *type = op_result(parse, op, node->type, right->type);
+      node = node_new_binary_op(parse, type, op, node, right);
+    } else {
+      errorf("expression is not assignable");
+    }
   }
   return node;
 }

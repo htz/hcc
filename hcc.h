@@ -82,6 +82,19 @@ enum {
   TOKEN_KEYWORD_IF = 256,
   TOKEN_KEYWORD_ELSE,
   TOKEN_KEYWORD_RETURN,
+  OP_SAL,    // <<
+  OP_SAR,    // >>
+  OP_EQ,     // ==
+  OP_NE,     // !=
+  OP_LE,     // <=
+  OP_GE,     // >=
+  OP_INC,    // ++@
+  OP_DEC,    // --@
+  OP_PINC,   // @++
+  OP_PDEC,   // @--
+  OP_ANDAND, // &&
+  OP_OROR,   // ||
+  OP_ASSIGN_MASK = 0x1000,
 };
 
 typedef struct token token_t;
