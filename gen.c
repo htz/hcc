@@ -2,6 +2,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "hcc.h"
 
 static const char *REGS[] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
@@ -177,10 +178,139 @@ static void emit_store(parse_t *parse, node_t *var) {
   emit_save(parse, var, var->type, 0, 0);
 }
 
+static void emit_arithmetic_int(parse_t *parse, int op, node_t *node) {
+  if (node->type->kind == TYPE_KIND_PTR || node->type->kind == TYPE_KIND_ARRAY) {
+    assert(node->type->parent != NULL && (op == '+' || op == '-'));
+    if (node->type->parent->total_size > 1) {
+      emitf("imul $%d, %%rax", node->type->parent->total_size);
+    }
+  }
+  emitf("mov %%rax, %%rcx");
+  emit_pop(parse, "rax");
+  if (op == '/' || op == '%') {
+    emitf("cqto");
+    emitf("idiv %%rcx");
+    if (op == '%') {
+      emitf("mov %%edx, %%eax");
+    }
+  } else {
+    switch (op) {
+    case '+':
+      emitf("add %%rcx, %%rax");
+        break;
+    case '-':
+      emitf("sub %%rcx, %%rax");
+      break;
+    case '*':
+      emitf("imul %%rcx, %%rax");
+      break;
+    case '^':
+      emitf("xor %%rcx, %%rax");
+      break;
+    default:
+      errorf("unknown operator");
+    }
+  }
+}
+
+static void emit_bitshift(parse_t *parse, int op, node_t *node) {
+  emitf("mov %%rax, %%rcx");
+  emit_pop(parse, "rax");
+  switch (node->type->bytes) {
+  case 1:
+    emitf("%s %%cl, %%al", op == OP_SAL ? "sal" : "sar");
+    break;
+  case 4:
+    emitf("%s %%cl, %%eax", op == OP_SAL ? "sal" : "sar");
+    break;
+  case 8:
+    emitf("%s %%cl, %%rax", op == OP_SAL ? "sal" : "sar");
+    break;
+  default:
+    errorf("invalid variable type");
+  }
+}
+
+static void emit_arithmetic_bit(parse_t *parse, int op) {
+  switch (op) {
+  case '&':
+    emit_pop(parse, "rcx");
+    emitf("and %%rcx, %%rax");
+    break;
+  case '|':
+    emit_pop(parse, "rcx");
+    emitf("or %%rcx, %%rax");
+    break;
+  default:
+    errorf("unknown operator");
+  }
+}
+
+static void emit_comp(parse_t *parse, int op) {
+  emit_pop(parse, "rcx");
+  emitf("cmp %%rax, %%rcx");
+  switch (op) {
+  case OP_EQ:
+    emitf("sete %%al");
+    break;
+  case OP_NE:
+    emitf("setne %%al");
+    break;
+  case '<':
+    emitf("setl %%al");
+    break;
+  case OP_LE:
+    emitf("setle %%al");
+    break;
+  case '>':
+    emitf("setg %%al");
+    break;
+  case OP_GE:
+    emitf("setge %%al");
+    break;
+  }
+  emitf("movzb %%al, %%eax");
+}
+
+static void emit_logical(parse_t *parse, node_t *node) {
+  emit_expression(parse, node->left);
+  emitf("test %%rax, %%rax");
+  if (node->op == OP_ANDAND) {
+    emitf("mov $0, %%rax");
+    emitf("je .L%p", node);
+  } else {
+    emitf("mov $1, %%rax");
+    emitf("jne .L%p", node);
+  }
+  emit_expression(parse, node->right);
+  emitf("test %%rax, %%rax");
+  if (node->op == OP_ANDAND) {
+    emitf("mov $0, %%rax");
+    emitf("je .L%p", node);
+    emitf("mov $1, %%rax");
+  } else {
+    emitf("mov $1, %%rax");
+    emitf("jne .L%p", node);
+    emitf("mov $0, %%rax");
+  }
+  emitf(".L%p:", node);
+}
+
 static void emit_binary_op_expression(parse_t *parse, node_t *node) {
-  if (node->op == '=') {
+  int op = node->op;
+  if (op == '=') {
     emit_expression(parse, node->right);
     emit_store(parse, node->left);
+    return;
+  }
+  if (op & OP_ASSIGN_MASK) {
+    node_t *tmp = node_new_binary_op(parse, node->type, op & ~OP_ASSIGN_MASK, node->left, node->right);
+    emit_expression(parse, tmp);
+    emit_store(parse, node->left);
+    return;
+  }
+  if (op == OP_ANDAND || op == OP_OROR) {
+    emit_logical(parse, node);
     return;
   }
 
@@ -188,36 +318,59 @@ static void emit_binary_op_expression(parse_t *parse, node_t *node) {
   emit_push(parse, "rcx");
   emit_push(parse, "rax");
   emit_expression(parse, node->right);
-  if (node->left->type->kind == TYPE_KIND_PTR || node->left->type->kind == TYPE_KIND_ARRAY) {
-    assert(node->left->type->parent != NULL);
-    if (node->left->type->parent->total_size > 1) {
-      emitf("imul $%d, %%rax", node->left->type->parent->total_size);
-    }
-  }
-  emitf("mov %%rax, %%rcx");
-  emit_pop(parse, "rax");
-  if (node->op == '/' || node->op == '%') {
-    emitf("cqto");
-    emitf("idiv %%rcx");
-    if (node->op == '%') {
-      emitf("mov %%edx, %%eax");
-    }
+  if (op == OP_SAL || op == OP_SAR) {
+    emit_bitshift(parse, op, node->left);
+  } else if (op == '&' || op == '|') {
+    emit_arithmetic_bit(parse, op);
+  } else if (
+    op == OP_EQ || op == OP_NE ||
+    op == '<' || op == OP_LE || op == '>' || op == OP_GE
+  ) {
+    emit_comp(parse, op);
   } else {
-    char *op;
-    switch (node->op) {
-    case '+': op = "add"; break;
-    case '-': op = "sub"; break;
-    case '*': op = "imul"; break;
-    default:
-      errorf("unknown op: %c\n", node->op);
-    }
-    emitf("%s %%rcx, %%rax", op);
+    emit_arithmetic_int(parse, op, node->left);
   }
   emit_pop(parse, "rcx");
 }
 
 static void emit_unary_op_expression(parse_t *parse, node_t *node) {
   switch (node->op) {
+  case OP_INC: case OP_DEC:
+  case OP_PINC: case OP_PDEC:
+    emit_expression(parse, node->operand);
+    int n = 1;
+    if (node->type->kind == TYPE_KIND_PTR) {
+      n = node->type->parent->bytes;
+    }
+    if (node->op == OP_PINC || node->op == OP_PDEC) {
+      emit_push(parse, "rax");
+    }
+    if (node->op == OP_INC || node->op == OP_PINC) {
+      emitf("add $%d, %%rax", n);
+    } else {
+      emitf("sub $%d, %%rax", n);
+    }
+    emit_store(parse, node->operand);
+    if (node->op == OP_PINC || node->op == OP_PDEC) {
+      emit_pop(parse, "rax");
+    }
+    break;
+  case '+': case '-': case '~': case '!':
+    emit_expression(parse, node->operand);
+    switch (node->op) {
+    case '-':
+      emitf("neg %%rax");
+      break;
+    case '~':
+      emitf("not %%rax");
+      break;
+    case '!':
+      emitf("cmp $0, %%rax");
+      emitf("sete %%al");
+      emitf("movzb %%al, %%eax");
+      break;
+    }
+    break;
   case '&':
     assert(node->operand->kind == NODE_KIND_VARIABLE);
     if (node->operand->global) {

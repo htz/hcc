@@ -99,6 +99,15 @@ static void unget_char(lex_t *lex, char c) {
   lex->p--;
 }
 
+static bool next_char(lex_t *lex, char expact) {
+  char c = get_char(lex);
+  if (c == expact) {
+    return true;
+  }
+  unget_char(lex, c);
+  return false;
+}
+
 static void move_to(lex_t *lex, char *to) {
   while (lex->p < to) {
     get_char(lex);
@@ -239,10 +248,93 @@ token_t *lex_get_token(lex_t *lex) {
     return token;
   }
   switch (c) {
-  case '+': case '-': case '*': case '/': case '%':
-  case '(': case ')': case ',': case ';': case '=':
-  case '&': case '[': case ']': case '{': case '}':
-  case '?': case ':':
+  case '+':
+    if (next_char(lex, '+')) {
+      return new_keyword(lex, OP_INC);
+    }
+    if (next_char(lex, '=')) {
+      return new_keyword(lex, '+' | OP_ASSIGN_MASK);
+    }
+    return new_keyword(lex, '+');
+  case '-':
+    if (next_char(lex, '-')) {
+      return new_keyword(lex, OP_DEC);
+    }
+    if (next_char(lex, '=')) {
+      return new_keyword(lex, '-' | OP_ASSIGN_MASK);
+    }
+    return new_keyword(lex, '-');
+  case '*':
+    if (next_char(lex, '=')) {
+      return new_keyword(lex, '*' | OP_ASSIGN_MASK);
+    }
+    return new_keyword(lex, '*');
+  case '/':
+    if (next_char(lex, '=')) {
+      return new_keyword(lex, '/' | OP_ASSIGN_MASK);
+    }
+    return new_keyword(lex, '/');
+  case '%':
+    if (next_char(lex, '=')) {
+      return new_keyword(lex, '%' | OP_ASSIGN_MASK);
+    }
+    return new_keyword(lex, '%');
+  case '&':
+    if (next_char(lex, '&')) {
+      return new_keyword(lex, OP_ANDAND);
+    }
+    if (next_char(lex, '=')) {
+      return new_keyword(lex, '&' | OP_ASSIGN_MASK);
+    }
+    return new_keyword(lex, '&');
+  case '|':
+    if (next_char(lex, '|')) {
+      return new_keyword(lex, OP_OROR);
+    }
+    if (next_char(lex, '=')) {
+      return new_keyword(lex, '|' | OP_ASSIGN_MASK);
+    }
+    return new_keyword(lex, '|');
+  case '^':
+    if (next_char(lex, '=')) {
+      return new_keyword(lex, '^' | OP_ASSIGN_MASK);
+    }
+    return new_keyword(lex, '^');
+  case '<':
+    if (next_char(lex, '<')) {
+      if (next_char(lex, '=')) {
+        return new_keyword(lex, OP_SAL | OP_ASSIGN_MASK);
+      }
+      return new_keyword(lex, OP_SAL);
+    }
+    if (next_char(lex, '=')) {
+      return new_keyword(lex, OP_LE);
+    }
+    return new_keyword(lex, '<');
+  case '>':
+    if (next_char(lex, '>')) {
+      if (next_char(lex, '=')) {
+        return new_keyword(lex, OP_SAR | OP_ASSIGN_MASK);
+      }
+      return new_keyword(lex, OP_SAR);
+    }
+    if (next_char(lex, '=')) {
+      return new_keyword(lex, OP_GE);
+    }
+    return new_keyword(lex, '>');
+  case '=':
+    if (next_char(lex, '=')) {
+      return new_keyword(lex, OP_EQ);
+    }
+    return new_keyword(lex, '=');
+  case '!':
+    if (next_char(lex, '=')) {
+      return new_keyword(lex, OP_NE);
+    }
+    return new_keyword(lex, '!');
+  case '(': case ')': case ',': case ';':
+  case '[': case ']': case '{': case '}':
+  case '?': case ':': case '~':
     return new_keyword(lex, c);
   case '\0':
     return token_new(lex, TOKEN_KIND_EOF);
