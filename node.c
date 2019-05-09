@@ -100,8 +100,9 @@ node_t *node_new_call(parse_t *parse, type_t *type, node_t *func, vector_t *args
   return node;
 }
 
-node_t *node_new_block(parse_t *parse, vector_t *statements, node_t *block) {
+node_t *node_new_block(parse_t *parse, int kind, vector_t *statements, node_t *block) {
   node_t *node = node_new(parse, NODE_KIND_BLOCK);
+  node->bkind = kind;
   node->statements = statements;
   node->vars = map_new();
   node->parent_block = block;
@@ -109,6 +110,7 @@ node_t *node_new_block(parse_t *parse, vector_t *statements, node_t *block) {
     vector_push(block->child_blocks, node);
   }
   node->child_blocks = vector_new();
+  node->parent_node = NULL;
   return node;
 }
 
@@ -129,10 +131,68 @@ node_t *node_new_function(parse_t *parse, node_t *fvar, vector_t *fargs, node_t 
   return node;
 }
 
+node_t *node_new_continue(parse_t *parse) {
+  node_t *node = node_new(parse, NODE_KIND_CONTINUE);
+  node_t *scope = parse->current_scope;
+  while (scope != NULL && scope->bkind != BLOCK_KIND_LOOP) {
+    scope = scope->parent_block;
+  }
+  if (scope == NULL) {
+    errorf("'continue' statement not in loop statement");
+  }
+  node->cscope = scope;
+  return node;
+}
+
+node_t *node_new_break(parse_t *parse) {
+  node_t *node = node_new(parse, NODE_KIND_BREAK);
+  node_t *scope = parse->current_scope;
+  while (scope != NULL && scope->bkind != BLOCK_KIND_LOOP) {
+    scope = scope->parent_block;
+  }
+  if (scope == NULL) {
+    errorf("'break' statement not in loop or switch statement");
+  }
+  node->cscope = scope;
+  return node;
+}
+
 node_t *node_new_return(parse_t *parse, type_t *type, node_t *retval) {
   node_t *node = node_new(parse, NODE_KIND_RETURN);
   node->type = type;
   node->retval = retval;
+  return node;
+}
+
+node_t *node_new_while(parse_t *parse, node_t *cond, node_t *body) {
+  node_t *node = node_new(parse, NODE_KIND_WHILE);
+  node->lcond = cond;
+  node->lbody = body;
+  if (body->kind == NODE_KIND_BLOCK) {
+    body->parent_node = node;
+  }
+  return node;
+}
+
+node_t *node_new_do(parse_t *parse, node_t *cond, node_t *body) {
+  node_t *node = node_new(parse, NODE_KIND_DO);
+  node->lcond = cond;
+  node->lbody = body;
+  if (body->kind == NODE_KIND_BLOCK) {
+    body->parent_node = node;
+  }
+  return node;
+}
+
+node_t *node_new_for(parse_t *parse, node_t *init, node_t *cond, node_t *step, node_t *body) {
+  node_t *node = node_new(parse, NODE_KIND_FOR);
+  node->linit = init;
+  node->lcond = cond;
+  node->lstep = step;
+  node->lbody = body;
+  if (body->kind == NODE_KIND_BLOCK) {
+    body->parent_node = node;
+  }
   return node;
 }
 
@@ -177,7 +237,11 @@ void node_free(node_t *node) {
   case NODE_KIND_FUNCTION:
     vector_free(node->fargs);
     break;
+  case NODE_KIND_CONTINUE: case NODE_KIND_BREAK:
+    break;
   case NODE_KIND_RETURN:
+    break;
+  case NODE_KIND_FOR: case NODE_KIND_WHILE: case NODE_KIND_DO:
     break;
   }
   free(node);
@@ -279,12 +343,55 @@ void node_debug(node_t *node) {
     node_debug(node->fbody);
     printf(")");
     break;
+  case NODE_KIND_CONTINUE:
+    printf("(continue)");
+    break;
+  case NODE_KIND_BREAK:
+    printf("(break)");
+    break;
   case NODE_KIND_RETURN:
     printf("(return");
     if (node->retval) {
       printf(" ");
       node_debug(node->retval);
     }
+    printf(")");
+    break;
+  case NODE_KIND_WHILE:
+    printf("(while ");
+    node_debug(node->lcond);
+    printf(" ");
+    node_debug(node->lbody);
+    printf(")");
+    break;
+  case NODE_KIND_DO:
+    printf("(do-while ");
+    node_debug(node->lbody);
+    printf(" ");
+    node_debug(node->lcond);
+    printf(")");
+    break;
+  case NODE_KIND_FOR:
+    printf("(for ");
+    if (node->linit) {
+      node_debug(node->linit);
+    } else {
+      printf("()");
+    }
+    printf(" ");
+    if (node->lcond) {
+      node_debug(node->lcond);
+    } else {
+      printf("()");
+    }
+    printf(" ");
+    if (node->lstep) {
+      node_debug(node->lstep);
+    } else {
+      printf("()");
+    }
+    printf(" ");
+    node_debug(node->lbody);
     printf(")");
     break;
   }

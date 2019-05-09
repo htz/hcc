@@ -36,6 +36,7 @@ static node_t *compound_statement(parse_t *parse);
 static node_t *statement(parse_t *parse);
 static node_t *expression_statement(parse_t *parse);
 static node_t *selection_statement(parse_t *parse);
+static node_t *iteration_statement(parse_t *parse, int keyword);
 static node_t *jump_statement(parse_t *parse, int keyword);
 
 static void add_var(parse_t *parse, node_t *var) {
@@ -154,8 +155,11 @@ static node_t *function_parameter_declaration(parse_t *parse) {
 
 static node_t *function_definition(parse_t *parse, node_t *var) {
   vector_t *fargs = vector_new();
+  node_t *scope = node_new_block(parse, BLOCK_KIND_DEFAULT, vector_new(), NULL);
   node_t *node = node_new_function(parse, var, fargs, NULL);
   parse->current_function = node;
+  parse->current_scope = scope;
+  parse->next_scope = scope;
   token_t *token = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
   bool empty_args = false;
   if (token != NULL) {
@@ -697,9 +701,15 @@ static node_t *initializer(parse_t *parse, type_t *type) {
 }
 
 static node_t *compound_statement(parse_t *parse) {
-  vector_t *statements = vector_new();
-  node_t *node = node_new_block(parse, statements, parse->current_scope);
-  parse->current_scope = node;
+  node_t *node = parse->next_scope;
+  if (node == NULL) {
+    node = node_new_block(parse, BLOCK_KIND_DEFAULT, vector_new(), parse->current_scope);
+    parse->current_scope = node;
+  } else {
+    assert(parse->current_scope == node);
+    parse->next_scope = NULL;
+  }
+  vector_t *statements = node->statements;
   while (!lex_next_keyword_is(parse->lex, '}')) {
     type_t *type = declaration_specifier(parse);
     if (type != NULL) {
@@ -719,8 +729,23 @@ static node_t *statement(parse_t *parse) {
   if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_IF)) {
     return selection_statement(parse);
   }
+  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_CONTINUE)) {
+    return jump_statement(parse, TOKEN_KEYWORD_CONTINUE);
+  }
+  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_BREAK)) {
+    return jump_statement(parse, TOKEN_KEYWORD_BREAK);
+  }
   if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_RETURN)) {
     return jump_statement(parse, TOKEN_KEYWORD_RETURN);
+  }
+  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_WHILE)) {
+    return iteration_statement(parse, TOKEN_KEYWORD_WHILE);
+  }
+  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_DO)) {
+    return iteration_statement(parse, TOKEN_KEYWORD_DO);
+  }
+  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_FOR)) {
+    return iteration_statement(parse, TOKEN_KEYWORD_FOR);
   }
   if (lex_next_keyword_is(parse->lex, '{')) {
     return compound_statement(parse);
@@ -749,30 +774,106 @@ static node_t *selection_statement(parse_t *parse) {
   return node_new_if(parse, cond, then_body, else_body);
 }
 
-static node_t *jump_statement(parse_t *parse, int keyword) {
-  assert(parse->current_function != NULL);
-  if (keyword == TOKEN_KEYWORD_RETURN) {
-    node_t *var = parse->current_function->fvar;
-    assert(var != NULL);
-    type_t *type = var->type;
-    node_t *exp = NULL;
-    if (!lex_next_keyword_is(parse->lex, ';')) {
-      if (type->kind == TYPE_KIND_VOID) {
-        errorf("void function '%s' should not return a value", var->vname);
-      }
-      exp = expression(parse);
-      if (!type_is_assignable(exp->type, type)) {
-        errorf("different returning expression type from '%s' to '%s'", exp->type->name, type->name);
-      }
-      lex_expect_keyword_is(parse->lex, ';');
+static node_t *iteration_statement(parse_t *parse, int keyword) {
+  if (keyword == TOKEN_KEYWORD_WHILE) {
+    lex_expect_keyword_is(parse->lex, '(');
+    node_t *cond = expression(parse);
+    lex_expect_keyword_is(parse->lex, ')');
+    node_t *body;
+    if (lex_next_keyword_is(parse->lex, '{')) {
+      node_t *scope = node_new_block(parse, BLOCK_KIND_LOOP, vector_new(), parse->current_scope);
+      parse->current_scope = scope;
+      parse->next_scope = scope;
+      body = compound_statement(parse);
     } else {
-      if (type->kind != TYPE_KIND_VOID) {
-        errorf("non-void function '%s' should return a value", var->vname);
+      body = statement(parse);
+    }
+    return node_new_while(parse, cond, body);
+  } else if (keyword == TOKEN_KEYWORD_DO) {
+    node_t *body;
+    if (lex_next_keyword_is(parse->lex, '{')) {
+      node_t *scope = node_new_block(parse, BLOCK_KIND_LOOP, vector_new(), parse->current_scope);
+      parse->current_scope = scope;
+      parse->next_scope = scope;
+      body = compound_statement(parse);
+    } else {
+      body = statement(parse);
+    }
+    lex_expect_keyword_is(parse->lex, TOKEN_KEYWORD_WHILE);
+    lex_expect_keyword_is(parse->lex, '(');
+    node_t *cond = expression(parse);
+    lex_expect_keyword_is(parse->lex, ')');
+    lex_expect_keyword_is(parse->lex, ';');
+    return node_new_do(parse, cond, body);
+  } else if (keyword == TOKEN_KEYWORD_FOR) {
+    node_t *scope = node_new_block(parse, BLOCK_KIND_LOOP, vector_new(), parse->current_scope);
+    parse->current_scope = scope;
+    parse->next_scope = scope;
+    node_t *init = NULL, *cond = NULL, *step = NULL;
+    lex_expect_keyword_is(parse->lex, '(');
+    if (!lex_next_keyword_is(parse->lex, ';')) {
+      type_t *type = declaration_specifier(parse);
+      if (type != NULL) {
+        init = declaration(parse, type);
+      } else {
+        init = expression(parse);
+        lex_expect_keyword_is(parse->lex, ';');
       }
     }
-    return node_new_return(parse, parse->current_function->type, exp);
+    if (!lex_next_keyword_is(parse->lex, ';')) {
+      cond = expression(parse);
+      lex_expect_keyword_is(parse->lex, ';');
+    }
+    if (!lex_next_keyword_is(parse->lex, ')')) {
+      step = expression(parse);
+      lex_expect_keyword_is(parse->lex, ')');
+    }
+    node_t *body = NULL;
+    if (lex_next_keyword_is(parse->lex, '{')) {
+      body = compound_statement(parse);
+    } else {
+      parse->next_scope = NULL;
+      body = statement(parse);
+      vector_push(scope->statements, body);
+      parse->current_scope = scope->parent_block;
+      body = scope;
+    }
+    return node_new_for(parse, init, cond, step, body);
   }
-  errorf("not implemented");
+  errorf("internal error");
+}
+
+static node_t *jump_statement(parse_t *parse, int keyword) {
+  assert(parse->current_function != NULL);
+  switch (keyword) {
+  case TOKEN_KEYWORD_CONTINUE:
+    lex_expect_keyword_is(parse->lex, ';');
+    return node_new_continue(parse);
+  case TOKEN_KEYWORD_BREAK:
+    lex_expect_keyword_is(parse->lex, ';');
+    return node_new_break(parse);
+  }
+
+  assert(keyword == TOKEN_KEYWORD_RETURN);
+  node_t *var = parse->current_function->fvar;
+  assert(var != NULL);
+  type_t *type = var->type;
+  node_t *exp = NULL;
+  if (!lex_next_keyword_is(parse->lex, ';')) {
+    if (type->kind == TYPE_KIND_VOID) {
+      errorf("void function '%s' should not return a value", var->vname);
+    }
+    exp = expression(parse);
+    if (!type_is_assignable(exp->type, type)) {
+      errorf("different returning expression type from '%s' to '%s'", exp->type->name, type->name);
+    }
+    lex_expect_keyword_is(parse->lex, ';');
+  } else {
+    if (type->kind != TYPE_KIND_VOID) {
+      errorf("non-void function '%s' should return a value", var->vname);
+    }
+  }
+  return node_new_return(parse, parse->current_function->type, exp);
 }
 
 static parse_t *parse_new(FILE *fp) {
@@ -784,6 +885,7 @@ static parse_t *parse_new(FILE *fp) {
   parse->vars = map_new();
   parse->types = map_new();
   parse->current_scope = NULL;
+  parse->next_scope = NULL;
 
   parse->type_void = type_new("void", TYPE_KIND_VOID, NULL);
   map_add(parse->types, parse->type_void->name, parse->type_void);
