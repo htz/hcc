@@ -79,11 +79,48 @@ static type_t *op_result(parse_t *parse, int op, type_t *left, type_t *right) {
     right = tmp;
   }
   type_t *type = NULL;
+  if (left->kind == right->kind) {
+    assert(left->sign != right->sign);
+    if (left->sign) {
+      type = right;
+    } else {
+      type = left;
+    }
+  }
   switch (left->kind) {
   case TYPE_KIND_CHAR:
+  case TYPE_KIND_SHORT:
+  case TYPE_KIND_INT:
+  case TYPE_KIND_LONG:
+  case TYPE_KIND_LLONG:
     switch (right->kind) {
+    case TYPE_KIND_SHORT:
+      if (left->sign != right->sign) {
+        type = parse->type_ushort;
+      } else {
+        type = right;
+      }
+      break;
     case TYPE_KIND_INT:
-      type = right;
+      if (left->sign != right->sign) {
+        type = parse->type_uint;
+      } else {
+        type = right;
+      }
+      break;
+    case TYPE_KIND_LONG:
+      if (left->sign != right->sign) {
+        type = parse->type_ulong;
+      } else {
+        type = right;
+      }
+      break;
+    case TYPE_KIND_LLONG:
+      if (left->sign != right->sign) {
+        type = parse->type_ullong;
+      } else {
+        type = right;
+      }
       break;
     case TYPE_KIND_PTR:
     case TYPE_KIND_ARRAY:
@@ -92,19 +129,6 @@ static type_t *op_result(parse_t *parse, int op, type_t *left, type_t *right) {
         op != '-' && op != ('-' | OP_ASSIGN_MASK) &&
         op != '='
       ) {
-        errorf("invalid operands to binary %c", op);
-      }
-      type = right;
-      break;
-    default:
-      errorf("unknown type: %s", right->name);
-    }
-    break;
-  case TYPE_KIND_INT:
-    switch (right->kind) {
-    case TYPE_KIND_PTR:
-    case TYPE_KIND_ARRAY:
-      if (op != '+' && op != '-') {
         errorf("invalid operands to binary %c", op);
       }
       type = right;
@@ -189,16 +213,78 @@ static node_t *function_definition(parse_t *parse, node_t *var) {
   return node;
 }
 
-static type_t *declaration_specifier(parse_t *parse) {
-  token_t *token = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
-  if (token == NULL) {
+static type_t *select_type(parse_t *parse, int kind, int sign, int size) {
+  if (kind == -1 && sign == -1 && size == -1) {
     return NULL;
   }
-  type_t *type = type_get(parse, token->identifier, NULL);
-  if (type == NULL) {
-    lex_unget_token(parse->lex, token);
+  switch (kind) {
+  case TYPE_KIND_VOID:
+    if (size != -1) {
+      errorf("'%s void' is invalid", type_kind_names_str(size));
+    }
+    if (sign != -1) {
+      errorf("'void' cannot be signed or unsigned");
+    }
+    return parse->type_void;
+  case TYPE_KIND_CHAR:
+    if (size != -1) {
+      errorf("'%s char' is invalid", type_kind_names_str(size));
+    }
+    if (sign == -1) {
+      return parse->type_char;
+    }
+    return sign == 0 ? parse->type_uchar : parse->type_schar;
   }
-  return type;
+  if (size == TYPE_KIND_SHORT) {
+    return sign == 0 ? parse->type_ushort : parse->type_short;
+  }
+  if (size == TYPE_KIND_LONG) {
+    return sign == 0 ? parse->type_ulong : parse->type_long;
+  }
+  if (size == TYPE_KIND_LLONG) {
+    return sign == 0 ? parse->type_ullong : parse->type_llong;
+  }
+  return sign == 0 ? parse->type_uint : parse->type_int;
+}
+
+static type_t *declaration_specifier(parse_t *parse) {
+  int kind = -1, sign = -1, size = -1;
+  token_t *token;
+  while ((token = lex_get_token(parse->lex)) != NULL) {
+    if (token->kind == TOKEN_KIND_KEYWORD) {
+      if (token->keyword == TOKEN_KEYWORD_SIGNED) {
+        sign = 1;
+        continue;
+      } else if (token->keyword == TOKEN_KEYWORD_UNSIGNED) {
+        sign = 0;
+        continue;
+      }
+    } else if (token->kind == TOKEN_KIND_IDENTIFIER) {
+      type_t *t = type_get(parse, token->identifier, NULL);
+      if (t == parse->type_short) {
+        size = TYPE_KIND_SHORT;
+        continue;
+      } else if (t == parse->type_long) {
+        if (size == TYPE_KIND_LONG) {
+          size = TYPE_KIND_LLONG;
+        } else if (size == -1) {
+          size = TYPE_KIND_LONG;
+        } else {
+          errorf("cannot combine with previous '%s' declaration specifier", type_kind_names_str(size));
+        }
+        continue;
+      } else if (t != NULL) {
+        if (kind != -1) {
+          errorf("cannot combine with previous '%s' declaration specifier", type_kind_names_str(kind));
+        }
+        kind = t->kind;
+        continue;
+      }
+    }
+    lex_unget_token(parse->lex, token);
+    break;
+  }
+  return select_type(parse, kind, sign, size);
 }
 
 static type_t *declarator_array(parse_t *parse, type_t *type) {
@@ -566,6 +652,16 @@ static node_t *primary_expression(parse_t *parse) {
   case TOKEN_KIND_CHAR:
   case TOKEN_KIND_INT:
     return node_new_int(parse, parse->type_int, token->ival);
+  case TOKEN_KIND_UINT:
+    return node_new_int(parse, parse->type_uint, token->ival);
+  case TOKEN_KIND_LONG:
+    return node_new_int(parse, parse->type_long, token->ival);
+  case TOKEN_KIND_ULONG:
+    return node_new_int(parse, parse->type_ulong, token->ival);
+  case TOKEN_KIND_LLONG:
+    return node_new_int(parse, parse->type_llong, token->ival);
+  case TOKEN_KIND_ULLONG:
+    return node_new_int(parse, parse->type_ullong, token->ival);
   case TOKEN_KIND_STRING:
     if (parse->current_function) {
       node = node_new_string(parse, token->sval, parse->data->size);
@@ -887,12 +983,30 @@ static parse_t *parse_new(FILE *fp) {
   parse->current_scope = NULL;
   parse->next_scope = NULL;
 
-  parse->type_void = type_new("void", TYPE_KIND_VOID, NULL);
+  parse->type_void = type_new("void", TYPE_KIND_VOID, false, NULL);
   map_add(parse->types, parse->type_void->name, parse->type_void);
-  parse->type_char = type_new("char", TYPE_KIND_CHAR, NULL);
+  parse->type_char = type_new("char", TYPE_KIND_CHAR, true, NULL);
   type_add(parse, parse->type_char->name, parse->type_char);
-  parse->type_int = type_new("int", TYPE_KIND_INT, NULL);
+  parse->type_schar = type_new("signed char", TYPE_KIND_CHAR, true, NULL);
+  type_add(parse, parse->type_schar->name, parse->type_schar);
+  parse->type_uchar = type_new("unsigned char", TYPE_KIND_CHAR, false, NULL);
+  type_add(parse, parse->type_uchar->name, parse->type_uchar);
+  parse->type_short = type_new("short", TYPE_KIND_SHORT, true, NULL);
+  type_add(parse, parse->type_short->name, parse->type_short);
+  parse->type_ushort = type_new("unsigned short", TYPE_KIND_SHORT, false, NULL);
+  type_add(parse, parse->type_ushort->name, parse->type_ushort);
+  parse->type_int = type_new("int", TYPE_KIND_INT, true, NULL);
   type_add(parse, parse->type_int->name, parse->type_int);
+  parse->type_uint = type_new("unsigned int", TYPE_KIND_INT, false, NULL);
+  type_add(parse, parse->type_uint->name, parse->type_uint);
+  parse->type_long = type_new("long", TYPE_KIND_LONG, true, NULL);
+  type_add(parse, parse->type_long->name, parse->type_long);
+  parse->type_ulong = type_new("unsigned long", TYPE_KIND_LONG, false, NULL);
+  type_add(parse, parse->type_ulong->name, parse->type_ulong);
+  parse->type_llong = type_new("long long", TYPE_KIND_LLONG, true, NULL);
+  type_add(parse, parse->type_llong->name, parse->type_llong);
+  parse->type_ullong = type_new("unsigned long long", TYPE_KIND_LLONG, false, NULL);
+  type_add(parse, parse->type_ullong->name, parse->type_ullong);
 
   return parse;
 }

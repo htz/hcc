@@ -24,7 +24,7 @@ node_t *node_new_identifier(parse_t *parse, char *identifier) {
   return node;
 }
 
-node_t *node_new_int(parse_t *parse, type_t *type, int ival) {
+node_t *node_new_int(parse_t *parse, type_t *type, long ival) {
   node_t *node = node_new(parse, NODE_KIND_LITERAL);
   node->type = type;
   node->ival = ival;
@@ -39,7 +39,7 @@ node_t *node_new_string(parse_t *parse, string_t *sval, int sid) {
   map_entry_t *e = map_find(parse->types, name->buf);
   type_t *type;
   if (e == NULL) {
-    type = type_new_with_size(name->buf, TYPE_KIND_ARRAY, parse->type_char, size);
+    type = type_new_with_size(name->buf, TYPE_KIND_ARRAY, false, parse->type_char, size);
     map_add(parse->types, name->buf, type);
   } else {
     type = (type_t *)e->val;
@@ -256,7 +256,7 @@ void node_debug(node_t *node) {
   case NODE_KIND_LITERAL:
     switch (node->type->kind) {
       case TYPE_KIND_INT:
-        printf("%d", node->ival);
+        printf("%ld", node->ival);
         break;
       default:
         errorf("unknown literal type: %d", node->type->kind);

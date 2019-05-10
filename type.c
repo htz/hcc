@@ -4,10 +4,23 @@
 #include <string.h>
 #include "hcc.h"
 
-type_t *type_new_with_size(char *name, int kind, type_t *parent, int size) {
+const char *type_kind_names[] = {
+  "void",
+  "char",
+  "short",
+  "int",
+  "long",
+  "long long",
+  "*",
+  "[]",
+};
+
+type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int size) {
   type_t *t = (type_t *)malloc(sizeof (type_t));
   t->name = strdup(name);
   t->kind = kind;
+  t->sign = sign;
+  t->sign = sign;
   t->parent = parent;
   switch (kind) {
   case TYPE_KIND_VOID:
@@ -15,6 +28,9 @@ type_t *type_new_with_size(char *name, int kind, type_t *parent, int size) {
     break;
   case TYPE_KIND_CHAR:
     t->bytes = 1;
+    break;
+  case TYPE_KIND_SHORT:
+    t->bytes = 2;
     break;
   case TYPE_KIND_INT:
     t->bytes = 4;
@@ -32,8 +48,8 @@ type_t *type_new_with_size(char *name, int kind, type_t *parent, int size) {
   return t;
 }
 
-type_t *type_new(char *name, int kind, type_t *parent) {
-  return type_new_with_size(name, kind, parent, 0);
+type_t *type_new(char *name, int kind, int sign, type_t *parent) {
+  return type_new_with_size(name, kind, sign, parent, 0);
 }
 
 void type_free(type_t *t) {
@@ -57,7 +73,7 @@ void type_add(parse_t *parse, char *name, type_t *type) {
 type_t *type_get(parse_t *parse, char *name, type_t *parent) {
   type_t *type = type_find(parse, name);
   if (type == NULL && parent != NULL) {
-    type = type_new(name, TYPE_KIND_PTR, parent);
+    type = type_new(name, TYPE_KIND_PTR, false, parent);
     type_add(parse, name, type);
   }
   return type;
@@ -98,7 +114,7 @@ type_t *type_make_array(parse_t *parse, type_t *parent, int size) {
   }
   type_t *type = type_find(parse, str->buf);
   if (type == NULL) {
-    type = type_new_with_size(str->buf, TYPE_KIND_ARRAY, parent, size);
+    type = type_new_with_size(str->buf, TYPE_KIND_ARRAY, false, parent, size);
     type_add(parse, str->buf, type);
   }
   string_free(str);
@@ -132,8 +148,15 @@ bool type_is_assignable(type_t *a, type_t *b) {
   return true;
 }
 
+const char *type_kind_names_str(int kind) {
+  return type_kind_names[kind];
+}
+
 bool type_is_int(type_t *type) {
   return
     type->kind == TYPE_KIND_CHAR ||
-    type->kind == TYPE_KIND_INT;
+    type->kind == TYPE_KIND_SHORT ||
+    type->kind == TYPE_KIND_INT ||
+    type->kind == TYPE_KIND_LONG ||
+    type->kind == TYPE_KIND_LLONG;
 }

@@ -6,6 +6,11 @@
 static const char *token_names[] = {
   "CHAR",
   "INT",
+  "UINT",
+  "LONG",
+  "ULONG",
+  "LLONG",
+  "ULLONG",
   "STRING",
   "KEYWORD",
   "IDENTIFIER",
