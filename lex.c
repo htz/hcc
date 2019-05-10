@@ -114,9 +114,12 @@ static void move_to(lex_t *lex, char *to) {
   }
 }
 
-static token_t *read_number(lex_t *lex) {
+static token_t *read_number(lex_t *lex, int base) {
   char *end;
-  int val = strtoul(lex->p, &end, 10);
+  int val = strtoul(lex->p, &end, base);
+  if (base == 16 && lex->p == end) {
+    errorf("invalid hexadecimal digit");
+  }
   move_to(lex, end);
   token_t *token = token_new(lex, TOKEN_KIND_INT);
   token->ival = val;
@@ -223,8 +226,19 @@ token_t *lex_get_token(lex_t *lex) {
     c = get_char(lex);
   } while (c != '\0' && isspace(c));
   if (isdigit(c)) {
+    if (c == '0') {
+      c = get_char(lex);
+      if (c == 'x' || c == 'X') {
+        return read_number(lex, 16);
+      }
+      unget_char(lex, c);
+      if (isdigit(c)) {
+        return read_number(lex, 8);
+      }
+      return read_number(lex, 10);
+    }
     unget_char(lex, c);
-    return read_number(lex);
+    return read_number(lex, 10);
   }
   if (c == '\'') {
     return read_char(lex);
