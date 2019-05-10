@@ -96,6 +96,10 @@ testast '(f->void [] {(for () () () {1;});})' 'void f(){for(;;)1;}'
 testast '(f->void [] {(for () () () {(continue);(break);});})' 'void f(){for(;;){continue;break;}}'
 
 test 0 'int mymain(){return 0;}'
+test 16 'int mymain(){return 16;}'
+test 22 'int mymain(){return 0x16;}'
+test 23 'int mymain(){return 0X17;}'
+test 15 'int mymain(){return 017;}'
 
 test 3 'int mymain(){return 1+2;}'
 test 3 'int mymain(){return 1 + 2;}'
@@ -170,6 +174,8 @@ test 1 'int mymain(){int i=0;while(i<100){i++;break;}return i;}'
 test '1 3 5 7 9 0' 'int mymain(){int i;for(i=0;i<10;i++){if(i%2==0){continue;}printf("%d ",i);}return 0;}'
 
 testfail 'int f(){0abc;}'
+testfail 'int f(){0xg;}'
+testfail 'int f(){08;}'
 testfail "int f(){'c;}"
 testfail "int f(){'cc';}"
 testfail "int f(){'';}"
