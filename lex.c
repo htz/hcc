@@ -114,16 +114,43 @@ static void move_to(lex_t *lex, char *to) {
   }
 }
 
+static token_t *read_integer(lex_t *lex, long val, char *end) {
+  int kind = TOKEN_KIND_INT;
+  if (end[0] == 'u' || end[0] == 'U') {
+    if (end[1] == 'l' || end[1] == 'L') {
+      if (end[2] == 'l' || end[2] == 'L') {
+        end += 3;
+        kind = TOKEN_KIND_ULLONG;
+      } else {
+        end += 2;
+        kind = TOKEN_KIND_ULONG;
+      }
+    } else {
+      end++;
+      kind = TOKEN_KIND_UINT;
+    }
+  } else if (end[0] == 'l' || end[0] == 'L') {
+    if (end[1] == 'l' || end[1] == 'L') {
+      end += 2;
+      kind = TOKEN_KIND_LLONG;
+    } else {
+      end++;
+      kind = TOKEN_KIND_LONG;
+    }
+  }
+  move_to(lex, end);
+  token_t *token = token_new(lex, kind);
+  token->ival = val;
+  return token;
+}
+
 static token_t *read_number(lex_t *lex, int base) {
   char *end;
-  int val = strtoul(lex->p, &end, base);
+  long val = strtoul(lex->p, &end, base);
   if (base == 16 && lex->p == end) {
     errorf("invalid hexadecimal digit");
   }
-  move_to(lex, end);
-  token_t *token = token_new(lex, TOKEN_KIND_INT);
-  token->ival = val;
-  return token;
+  return read_integer(lex, val, end);
 }
 
 static char read_escaped_char(lex_t *lex) {
@@ -273,6 +300,12 @@ token_t *lex_get_token(lex_t *lex) {
     }
     if (strcmp("continue", token->identifier) == 0) {
       return new_keyword(lex, TOKEN_KEYWORD_CONTINUE);
+    }
+    if (strcmp("signed", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_SIGNED);
+    }
+    if (strcmp("unsigned", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_UNSIGNED);
     }
     return token;
   }

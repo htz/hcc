@@ -53,7 +53,10 @@ struct string {
 enum {
   TYPE_KIND_VOID,
   TYPE_KIND_CHAR,
+  TYPE_KIND_SHORT,
   TYPE_KIND_INT,
+  TYPE_KIND_LONG,
+  TYPE_KIND_LLONG,
   TYPE_KIND_PTR,
   TYPE_KIND_ARRAY,
 };
@@ -62,6 +65,7 @@ typedef struct type type_t;
 struct type {
   char *name;
   int kind;
+  bool sign;
   type_t *parent;
   int bytes;
   int size;
@@ -71,6 +75,11 @@ struct type {
 enum {
   TOKEN_KIND_CHAR,
   TOKEN_KIND_INT,
+  TOKEN_KIND_UINT,
+  TOKEN_KIND_LONG,
+  TOKEN_KIND_ULONG,
+  TOKEN_KIND_LLONG,
+  TOKEN_KIND_ULLONG,
   TOKEN_KIND_STRING,
   TOKEN_KIND_KEYWORD,
   TOKEN_KIND_IDENTIFIER,
@@ -87,6 +96,8 @@ enum {
   TOKEN_KEYWORD_FOR,
   TOKEN_KEYWORD_BREAK,
   TOKEN_KEYWORD_CONTINUE,
+  TOKEN_KEYWORD_SIGNED,
+  TOKEN_KEYWORD_UNSIGNED,
   OP_SAL,    // <<
   OP_SAR,    // >>
   OP_EQ,     // ==
@@ -108,7 +119,7 @@ struct token {
   int line;
   int column;
   union {
-    int ival;
+    long ival;
     string_t *sval;
     int keyword;
     char *identifier;
@@ -160,7 +171,7 @@ struct node {
   node_t *next;
   union {
     char *identifier;
-    int ival;
+    long ival;
     // String literal
     struct {
       string_t *sval;
@@ -248,7 +259,16 @@ struct parse {
   // builtin types
   type_t *type_void;
   type_t *type_char;
+  type_t *type_schar;
+  type_t *type_short;
+  type_t *type_ushort;
+  type_t *type_uchar;
   type_t *type_int;
+  type_t *type_uint;
+  type_t *type_long;
+  type_t *type_ulong;
+  type_t *type_llong;
+  type_t *type_ullong;
 };
 
 // vector.c
@@ -281,8 +301,8 @@ int max(int a, int b);
 void align(int *np, int a);
 
 // type.c
-type_t *type_new_with_size(char *name, int kind, type_t *parent, int size);
-type_t *type_new(char *name, int kind, type_t *ptr);
+type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int size);
+type_t *type_new(char *name, int kind, int sign, type_t *ptr);
 void type_free(type_t *t);
 type_t *type_find(parse_t *parse, char *name);
 void type_add(parse_t *parse, char *name, type_t *type);
@@ -290,6 +310,7 @@ type_t *type_get(parse_t *parse, char *name, type_t *parent);
 type_t *type_get_ptr(parse_t *parse, type_t *type);
 type_t *type_make_array(parse_t *parse, type_t *parent, int size);
 bool type_is_assignable(type_t *a, type_t *b);
+const char *type_kind_names_str(int kind);
 bool type_is_int(type_t *type);
 
 // token.c
@@ -312,7 +333,7 @@ token_t *lex_expect_keyword_is(lex_t *lex, int k);
 // node.c
 node_t *node_new_nop(parse_t *parse);
 node_t *node_new_identifier(parse_t *parse, char *identifier);
-node_t *node_new_int(parse_t *parse, type_t *type, int ival);
+node_t *node_new_int(parse_t *parse, type_t *type, long ival);
 node_t *node_new_string(parse_t *parse, string_t *sval, int sid);
 node_t *node_new_init_list(parse_t *parse, type_t *type, vector_t *init);
 node_t *node_new_variable(parse_t *parse, type_t *type, char *vname, bool global);
