@@ -31,6 +31,14 @@ node_t *node_new_int(parse_t *parse, type_t *type, long ival) {
   return node;
 }
 
+node_t *node_new_float(parse_t *parse, type_t *type, double fval, int fid) {
+  node_t *node = node_new(parse, NODE_KIND_LITERAL);
+  node->type = type;
+  node->fval = fval;
+  node->fid = fid;
+  return node;
+}
+
 node_t *node_new_string(parse_t *parse, string_t *sval, int sid) {
   node_t *node = node_new(parse, NODE_KIND_STRING_LITERAL);
   int size = sval->size + 1;
@@ -256,7 +264,14 @@ void node_debug(node_t *node) {
   case NODE_KIND_LITERAL:
     switch (node->type->kind) {
       case TYPE_KIND_INT:
+      case TYPE_KIND_LONG:
+      case TYPE_KIND_LLONG:
         printf("%ld", node->ival);
+        break;
+      case TYPE_KIND_FLOAT:
+      case TYPE_KIND_DOUBLE:
+      case TYPE_KIND_LDOUBLE:
+        printf("%f", node->fval);
         break;
       default:
         errorf("unknown literal type: %d", node->type->kind);
@@ -298,7 +313,11 @@ void node_debug(node_t *node) {
     printf(")");
     break;
   case NODE_KIND_UNARY_OP:
-    printf("(%c ", node->op);
+    if (node->op == OP_CAST) {
+      printf("(cast (%s) ", node->type->name);
+    } else {
+      printf("(%c ", node->op);
+    }
     node_debug(node->operand);
     printf(")");
     break;

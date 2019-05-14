@@ -144,13 +144,32 @@ static token_t *read_integer(lex_t *lex, long val, char *end) {
   return token;
 }
 
+static token_t *read_float(lex_t *lex, double val, char *end) {
+  int kind = TOKEN_KIND_DOUBLE;
+  if (end[0] == 'f' || end[0] == 'F') {
+    end++;
+    kind = TOKEN_KIND_FLOAT;
+  }
+  move_to(lex, end);
+  token_t *token = token_new(lex, kind);
+  token->fval = val;
+  return token;
+}
+
 static token_t *read_number(lex_t *lex, int base) {
-  char *end;
-  long val = strtoul(lex->p, &end, base);
-  if (base == 16 && lex->p == end) {
+  char *iend;
+  long ival = strtoul(lex->p, &iend, base);
+  if (base == 10) {
+    char *fend;
+    double fval = strtod(lex->p, &fend);
+    if (iend < fend) {
+      return read_float(lex, fval, fend);
+    }
+  }
+  if (base == 16 && lex->p == iend) {
     errorf("invalid hexadecimal digit");
   }
-  return read_integer(lex, val, end);
+  return read_integer(lex, ival, iend);
 }
 
 static char read_escaped_char(lex_t *lex) {
@@ -398,6 +417,9 @@ token_t *lex_get_token(lex_t *lex) {
   case '[': case ']': case '{': case '}':
   case '?': case ':': case '~':
     return new_keyword(lex, c);
+  case '.':
+    unget_char(lex, c);
+    return read_number(lex, 10);
   case '\0':
     return token_new(lex, TOKEN_KIND_EOF);
   }

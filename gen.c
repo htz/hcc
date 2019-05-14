@@ -1,6 +1,7 @@
 // Copyright 2019 @htz. Released under the MIT license.
 
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "hcc.h"
@@ -11,12 +12,16 @@ static void emitf_noindent(char *fmt, ...);
 static void emitf(char *fmt, ...);
 static void emit_push(parse_t *parse, const char *reg);
 static void emit_pop(parse_t *parse, const char *reg);
+static void emit_push_xmm(parse_t *parse, int n);
+static void emit_pop_xmm(parse_t *parse, int n);
 static void emit_int(parse_t *parse, node_t *node);
+static void emit_float(parse_t *parse, node_t *node);
 static void emit_string(parse_t *parse, node_t *node);
 static void emit_string_data(string_t *str);
 static void emit_global_variable(parse_t *parse, node_t *node);
 static void emit_variable(parse_t *parse, node_t *node);
-static void emit_store(parse_t *parse, node_t *var);
+static void emit_store(parse_t *parse, node_t *var, type_t *type);
+static void emit_cast(parse_t *parse, type_t *to, type_t *from);
 static void emit_binary_op_expression(parse_t *parse, node_t *node);
 static void emit_unary_op_expression(parse_t *parse, node_t *node);
 static void emit_declaration_init(parse_t *parse, node_t *var, node_t *init);
@@ -58,8 +63,26 @@ static void emit_pop(parse_t *parse, const char *reg) {
   emitf("pop %%%s", reg);
 }
 
+static void emit_push_xmm(parse_t *parse, int n) {
+  emitf("sub $8, %%rsp");
+  emitf("movsd %%xmm%d, (%%rsp)", n);
+}
+
+static void emit_pop_xmm(parse_t *parse, int n) {
+  emitf("movsd (%%rsp), %%xmm%d", n);
+  emitf("add $8, %%rsp");
+}
+
 static void emit_int(parse_t *parse, node_t *node) {
   emitf("mov $%ld, %%rax", node->ival);
+}
+
+static void emit_float(parse_t *parse, node_t *node) {
+  if (node->type->kind == TYPE_KIND_FLOAT) {
+    emitf("movss .FLT_%d(%%rip), %%xmm0", node->fid);
+  } else {
+    emitf("movsd .DBL_%d(%%rip), %%xmm0", node->fid);
+  }
 }
 
 static void emit_string(parse_t *parse, node_t *node) {
@@ -75,26 +98,35 @@ static void emit_string_data(string_t *str) {
 }
 
 static void emit_global_variable(parse_t *parse, node_t *node) {
-  if (node->type->kind == TYPE_KIND_ARRAY) {
+  switch (node->type->kind) {
+  case TYPE_KIND_ARRAY:
     assert(node->type->parent != NULL);
     emitf("lea %s(%%rip), %%rax", node->vname);
-    return;
-  }
-  switch (node->type->bytes) {
-  case 1:
-    emitf("movsbq %s(%%rip), %%rax", node->vname);
     break;
-  case 2:
-    emitf("movswq %s(%%rip), %%rax", node->vname);
+  case TYPE_KIND_FLOAT:
+    emitf("movss %s(%%rip), %%xmm0", node->vname);
     break;
-  case 4:
-    emitf("movslq %s(%%rip), %%rax", node->vname);
-    break;
-  case 8:
-    emitf("mov %s(%%rip), %%rax", node->vname);
+  case TYPE_KIND_DOUBLE:
+  case TYPE_KIND_LDOUBLE:
+    emitf("movsd %s(%%rip), %%xmm0", node->vname);
     break;
   default:
-    errorf("invalid variable type");
+    switch (node->type->bytes) {
+    case 1:
+      emitf("movsbq %s(%%rip), %%rax", node->vname);
+      break;
+    case 2:
+      emitf("movswq %s(%%rip), %%rax", node->vname);
+      break;
+    case 4:
+      emitf("movslq %s(%%rip), %%rax", node->vname);
+      break;
+    case 8:
+      emitf("mov %s(%%rip), %%rax", node->vname);
+      break;
+    default:
+      errorf("invalid variable type");
+    }
   }
 }
 
@@ -103,46 +135,65 @@ static void emit_variable(parse_t *parse, node_t *node) {
     emit_global_variable(parse, node);
     return;
   }
-  if (node->type->kind == TYPE_KIND_ARRAY) {
+  switch (node->type->kind) {
+  case TYPE_KIND_ARRAY:
     assert(node->type->parent != NULL);
     emitf("lea %d(%%rbp), %%rax", -node->voffset);
-    return;
-  }
-  switch (node->type->bytes) {
-  case 1:
-    emitf("movsbq %d(%%rbp), %%rax", -node->voffset);
     break;
-  case 2:
-    emitf("movswq %d(%%rbp), %%rax", -node->voffset);
+  case TYPE_KIND_FLOAT:
+    emitf("movss %d(%%rbp), %%xmm0", -node->voffset);
     break;
-  case 4:
-    emitf("movslq %d(%%rbp), %%rax", -node->voffset);
-    break;
-  case 8:
-    emitf("mov %d(%%rbp), %%rax", -node->voffset);
+  case TYPE_KIND_DOUBLE:
+  case TYPE_KIND_LDOUBLE:
+    emitf("movsd %d(%%rbp), %%xmm0", -node->voffset);
     break;
   default:
-    errorf("invalid variable type");
+    switch (node->type->bytes) {
+    case 1:
+      emitf("movsbq %d(%%rbp), %%rax", -node->voffset);
+      break;
+    case 2:
+      emitf("movswq %d(%%rbp), %%rax", -node->voffset);
+      break;
+    case 4:
+      emitf("movslq %d(%%rbp), %%rax", -node->voffset);
+      break;
+    case 8:
+      emitf("mov %d(%%rbp), %%rax", -node->voffset);
+      break;
+    default:
+      errorf("invalid variable type");
+    }
   }
 }
 
 static void emit_save_global(parse_t *parse, node_t *var, type_t *type) {
-  assert(type->kind != TYPE_KIND_ARRAY);
-  switch (type->bytes) {
-  case 1:
-    emitf("mov %%al, %s(%%rip)", var->vname);
+  assert(var->type->kind != TYPE_KIND_ARRAY);
+  switch (var->type->kind) {
+  case TYPE_KIND_FLOAT:
+    emitf("movss %%xmm0, %s(%%rip)", var->vname);
     break;
-  case 2:
-    emitf("mov %%ax, %s(%%rip)", var->vname);
-    break;
-  case 4:
-    emitf("mov %%eax, %s(%%rip)", var->vname);
-    break;
-  case 8:
-    emitf("mov %%rax, %s(%%rip)", var->vname);
+  case TYPE_KIND_DOUBLE:
+  case TYPE_KIND_LDOUBLE:
+    emitf("movsd %%xmm0, %s(%%rip)", var->vname);
     break;
   default:
-    errorf("invalid variable type");
+    switch (var->type->bytes) {
+    case 1:
+      emitf("mov %%al, %s(%%rip)", var->vname);
+      break;
+    case 2:
+      emitf("mov %%ax, %s(%%rip)", var->vname);
+      break;
+    case 4:
+      emitf("mov %%eax, %s(%%rip)", var->vname);
+      break;
+    case 8:
+      emitf("mov %%rax, %s(%%rip)", var->vname);
+      break;
+    default:
+      errorf("invalid variable type");
+    }
   }
 }
 
@@ -152,50 +203,125 @@ static void emit_save(parse_t *parse, node_t *var, type_t *type, int base, int a
     emit_save_global(parse, var, type);
     return;
   }
-  switch (type->bytes) {
-  case 1:
-    emitf("mov %%al, %d(%%rbp)", -var->voffset + base + type->bytes * at);
+  switch (type->kind) {
+  case TYPE_KIND_FLOAT:
+    emitf("movss %%xmm0, %d(%%rbp)", -var->voffset + base + type->bytes * at);
     break;
-  case 2:
-    emitf("mov %%ax, %d(%%rbp)", -var->voffset + base + type->bytes * at);
-    break;
-  case 4:
-    emitf("mov %%eax, %d(%%rbp)", -var->voffset + base + type->bytes * at);
-    break;
-  case 8:
-    emitf("mov %%rax, %d(%%rbp)", -var->voffset + base + type->bytes * at);
+  case TYPE_KIND_DOUBLE:
+  case TYPE_KIND_LDOUBLE:
+    emitf("movsd %%xmm0, %d(%%rbp)", -var->voffset + base + type->bytes * at);
     break;
   default:
-    errorf("invalid variable type");
-  }
-}
-
-static void emit_store(parse_t *parse, node_t *var) {
-  if (var->kind == NODE_KIND_UNARY_OP && var->op == '*') {
-    emit_push(parse, "rax");
-    emit_expression(parse, var->operand);
-    emitf("mov %%rax, %%rcx");
-    emit_pop(parse, "rax");
-    switch (var->type->bytes) {
+    switch (type->bytes) {
     case 1:
-      emitf("mov %%al, (%%rcx)");
+      emitf("mov %%al, %d(%%rbp)", -var->voffset + base + type->bytes * at);
       break;
     case 2:
-      emitf("mov %%ax, (%%rcx)");
+      emitf("mov %%ax, %d(%%rbp)", -var->voffset + base + type->bytes * at);
       break;
     case 4:
-      emitf("mov %%eax, (%%rcx)");
+      emitf("mov %%eax, %d(%%rbp)", -var->voffset + base + type->bytes * at);
       break;
     case 8:
-      emitf("mov %%rax, (%%rcx)");
+      emitf("mov %%rax, %d(%%rbp)", -var->voffset + base + type->bytes * at);
       break;
     default:
       errorf("invalid variable type");
+    }
+  }
+}
+
+static void emit_store(parse_t *parse, node_t *var, type_t *type) {
+  emit_cast(parse, var->type, type);
+  if (var->kind == NODE_KIND_UNARY_OP && var->op == '*') {
+    if (type_is_float(var->type)) {
+      emit_push_xmm(parse, 0);
+    } else {
+      emit_push(parse, "rax");
+    }
+    emit_expression(parse, var->operand);
+    emitf("mov %%rax, %%rcx");
+    if (type_is_float(var->type)) {
+      emit_pop_xmm(parse, 0);
+    } else {
+      emit_pop(parse, "rax");
+    }
+    switch (var->type->kind) {
+    case TYPE_KIND_FLOAT:
+      emitf("movss %%xmm0, (%%rcx)");
+      break;
+    case TYPE_KIND_DOUBLE:
+    case TYPE_KIND_LDOUBLE:
+      emitf("movsd %%xmm0, (%%rcx)");
+      break;
+    default:
+      switch (var->type->bytes) {
+      case 1:
+        emitf("mov %%al, (%%rcx)");
+        break;
+      case 2:
+        emitf("mov %%ax, (%%rcx)");
+        break;
+      case 4:
+        emitf("mov %%eax, (%%rcx)");
+        break;
+      case 8:
+        emitf("mov %%rax, (%%rcx)");
+        break;
+      default:
+        errorf("invalid variable type");
+      }
     }
     return;
   }
   assert(var->kind == NODE_KIND_VARIABLE);
   emit_save(parse, var, var->type, 0, 0);
+}
+
+static void emit_cast_to_int(parse_t *parse, type_t *type) {
+  switch (type->kind) {
+  case TYPE_KIND_CHAR:
+    emitf("%s %%al, %%rax", type->sign ? "movsbq" : "movzbq");
+    break;
+  case TYPE_KIND_SHORT:
+    emitf("%s %%ax, %%rax", type->sign ? "movswq" : "movzwq");
+    break;
+  case TYPE_KIND_INT:
+    if (type->sign) {
+      emitf("cltq");
+    } else {
+      emitf("mov %%eax, %%eax");
+    }
+    break;
+  case TYPE_KIND_LONG:
+  case TYPE_KIND_LLONG:
+    break;
+  case TYPE_KIND_FLOAT:
+    emitf("cvttss2si %%xmm0, %%rax");
+    break;
+  case TYPE_KIND_DOUBLE:
+  case TYPE_KIND_LDOUBLE:
+    emitf("cvttsd2si %%xmm0, %%rax");
+    break;
+  }
+}
+
+static void emit_cast(parse_t *parse, type_t *to, type_t *from) {
+  if (type_is_int(to)) {
+    emit_cast_to_int(parse, from);
+  } else if (to->kind == TYPE_KIND_FLOAT) {
+    if (type_is_int(from)) {
+      emitf("cvtsi2ss %%rax, %%xmm0");
+    } else if (from->kind == TYPE_KIND_DOUBLE || from->kind == TYPE_KIND_LDOUBLE) {
+      emitf("cvtsd2ss %%xmm0, %%xmm0");
+    }
+  } else if (to->kind == TYPE_KIND_DOUBLE || to->kind == TYPE_KIND_LDOUBLE) {
+    if (type_is_int(from)) {
+      emitf("cvtsi2sd %%rax, %%xmm0");
+    } else if (from->kind == TYPE_KIND_FLOAT) {
+      emitf("cvtss2sd %%xmm0, %%xmm0");
+    }
+  }
 }
 
 static void emit_arithmetic_int(parse_t *parse, int op, node_t *node) {
@@ -235,6 +361,27 @@ static void emit_arithmetic_int(parse_t *parse, int op, node_t *node) {
     default:
       errorf("unknown operator");
     }
+  }
+}
+
+static void emit_arithmetic_float(parse_t *parse, int op, bool isdouble) {
+  emitf("%s %%xmm0, %%xmm1", isdouble ? "movsd" : "movss");
+  emit_pop_xmm(parse, 0);
+  switch (op) {
+  case '+':
+    emitf("%s %%xmm1, %%xmm0", isdouble ? "addsd" : "addss");
+      break;
+  case '-':
+    emitf("%s %%xmm1, %%xmm0", isdouble ? "subsd" : "subss");
+    break;
+  case '*':
+    emitf("%s %%xmm1, %%xmm0", isdouble ? "mulsd" : "mulss");
+    break;
+  case '/':
+    emitf("%s %%xmm1, %%xmm0", isdouble ? "divsd" : "divss");
+    break;
+  default:
+    errorf("unknown operator");
   }
 }
 
@@ -282,7 +429,7 @@ static void emit_arithmetic_bit(parse_t *parse, int op) {
   }
 }
 
-static void emit_comp(parse_t *parse, int op, bool sign) {
+static void emit_comp_int(parse_t *parse, int op, bool sign) {
   emit_pop(parse, "rcx");
   emitf("cmp %%rax, %%rcx");
   switch (op) {
@@ -303,6 +450,33 @@ static void emit_comp(parse_t *parse, int op, bool sign) {
     break;
   case OP_GE:
     emitf("%s %%al", sign ? "setge" : "setae");
+    break;
+  }
+  emitf("movzb %%al, %%eax");
+}
+
+static void emit_comp_float(parse_t *parse, int op, bool isdouble) {
+  emitf("%s %%xmm0, %%xmm1", isdouble ? "movsd" : "movss");
+  emit_pop_xmm(parse, 0);
+  emitf("%s %%xmm1, %%xmm0", isdouble ? "ucomisd" : "ucomiss");
+  switch (op) {
+  case OP_EQ:
+    emitf("sete %%al");
+    break;
+  case OP_NE:
+    emitf("setne %%al");
+    break;
+  case '<':
+    emitf("setb %%al");
+    break;
+  case OP_LE:
+    emitf("setbe %%al");
+    break;
+  case '>':
+    emitf("seta %%al");
+    break;
+  case OP_GE:
+    emitf("setae %%al");
     break;
   }
   emitf("movzb %%al, %%eax");
@@ -336,13 +510,13 @@ static void emit_binary_op_expression(parse_t *parse, node_t *node) {
   int op = node->op;
   if (op == '=') {
     emit_expression(parse, node->right);
-    emit_store(parse, node->left);
+    emit_store(parse, node->left, node->right->type);
     return;
   }
   if (op & OP_ASSIGN_MASK) {
     node_t *tmp = node_new_binary_op(parse, node->type, op & ~OP_ASSIGN_MASK, node->left, node->right);
     emit_expression(parse, tmp);
-    emit_store(parse, node->left);
+    emit_store(parse, node->left, node->type);
     return;
   }
   if (op == OP_ANDAND || op == OP_OROR) {
@@ -351,22 +525,52 @@ static void emit_binary_op_expression(parse_t *parse, node_t *node) {
   }
 
   emit_expression(parse, node->left);
-  emit_push(parse, "rcx");
-  emit_push(parse, "rax");
-  emit_expression(parse, node->right);
-  if (op == OP_SAL || op == OP_SAR) {
+  if (type_is_float(node->type)) {
+    emit_cast(parse, node->type, node->left->type);
+    emit_push_xmm(parse, 0);
+    emit_expression(parse, node->right);
+    emit_cast(parse, node->type, node->right->type);
+    emit_arithmetic_float(parse, op, node->type->kind == TYPE_KIND_DOUBLE || node->type->kind == TYPE_KIND_LDOUBLE);
+  } else if (op == OP_SAL || op == OP_SAR) {
+    emit_push(parse, "rcx");
+    emit_push(parse, "rax");
+    emit_expression(parse, node->right);
     emit_bitshift(parse, op, node->left);
+    emit_pop(parse, "rcx");
   } else if (op == '&' || op == '|') {
+    emit_push(parse, "rcx");
+    emit_push(parse, "rax");
+    emit_expression(parse, node->right);
     emit_arithmetic_bit(parse, op);
-  } else if (
-    op == OP_EQ || op == OP_NE ||
-    op == '<' || op == OP_LE || op == '>' || op == OP_GE
-  ) {
-    emit_comp(parse, op, node->left->type->sign && node->right->type->sign);
+    emit_pop(parse, "rcx");
+  } else if (op == OP_EQ || op == OP_NE || op == '<' || op == OP_LE || op == '>' || op == OP_GE) {
+    if (type_is_float(node->left->type) || type_is_float(node->right->type)) {
+      type_t *t = node->left->type;
+      if (type_is_int(t)) {
+        t = node->right->type;
+      } else if (node->right->type->kind == TYPE_KIND_DOUBLE || node->right->type->kind == TYPE_KIND_LDOUBLE) {
+        t = node->right->type;
+      }
+      assert(type_is_float(t));
+      emit_cast(parse, t, node->left->type);
+      emit_push_xmm(parse, 0);
+      emit_expression(parse, node->right);
+      emit_cast(parse, t, node->right->type);
+      emit_comp_float(parse, op, t->kind == TYPE_KIND_DOUBLE || t->kind == TYPE_KIND_LDOUBLE);
+    } else {
+      emit_push(parse, "rcx");
+      emit_push(parse, "rax");
+      emit_expression(parse, node->right);
+      emit_comp_int(parse, op, node->left->type->sign && node->right->type->sign);
+      emit_pop(parse, "rcx");
+    }
   } else {
+    emit_push(parse, "rcx");
+    emit_push(parse, "rax");
+    emit_expression(parse, node->right);
     emit_arithmetic_int(parse, op, node->left);
+    emit_pop(parse, "rcx");
   }
-  emit_pop(parse, "rcx");
 }
 
 static void emit_unary_op_expression(parse_t *parse, node_t *node) {
@@ -386,7 +590,7 @@ static void emit_unary_op_expression(parse_t *parse, node_t *node) {
     } else {
       emitf("sub $%d, %%rax", n);
     }
-    emit_store(parse, node->operand);
+    emit_store(parse, node->operand, node->operand->type);
     if (node->op == OP_PINC || node->op == OP_PDEC) {
       emit_pop(parse, "rax");
     }
@@ -420,22 +624,32 @@ static void emit_unary_op_expression(parse_t *parse, node_t *node) {
     if (node->type->kind == TYPE_KIND_ARRAY) {
       return;
     }
-    switch (node->type->bytes) {
-    case 1:
-      emitf("movzbq (%%rax), %%rax");
-      break;
-    case 2:
-      emitf("movzwq (%%rax), %%rax");
-      break;
-    case 4:
-      emitf("mov (%%rax), %%eax");
-      break;
-    case 8:
-      emitf("mov (%%rax), %%rax");
-      break;
-    default:
-      errorf("invalid variable type");
+    if (node->type->kind == TYPE_KIND_FLOAT) {
+      emitf("movss (%%rax), %%xmm0");
+    } else if (node->type->kind == TYPE_KIND_DOUBLE || node->type->kind == TYPE_KIND_LDOUBLE) {
+      emitf("movsd (%%rax), %%xmm0");
+    } else {
+      switch (node->type->bytes) {
+      case 1:
+        emitf("movzbq (%%rax), %%rax");
+        break;
+      case 2:
+        emitf("movzwq (%%rax), %%rax");
+        break;
+      case 4:
+        emitf("mov (%%rax), %%eax");
+        break;
+      case 8:
+        emitf("mov (%%rax), %%rax");
+        break;
+      default:
+        errorf("invalid variable type");
+      }
     }
+    break;
+  case OP_CAST:
+    emit_expression(parse, node->operand);
+    emit_cast(parse, node->type, node->operand->type);
     break;
   }
 }
@@ -446,6 +660,7 @@ static void emit_declaration_init_array(parse_t *parse, node_t *var, type_t *typ
     node_t *val = (node_t *)vals->data[i];
     if (val->kind != NODE_KIND_INIT_LIST) {
       emit_expression(parse, val);
+      emit_cast(parse, type->parent, val->type);
       emit_save(parse, var, type->parent, offset, i);
     } else {
       emit_declaration_init_array(parse, var, type->parent, val->init_list, offset + type->parent->total_size * i);
@@ -465,7 +680,7 @@ static void emit_declaration_init(parse_t *parse, node_t *var, node_t *init) {
     emit_save(parse, var, parse->type_char, 0, i);
   } else if (init->kind != NODE_KIND_INIT_LIST) {
     emit_expression(parse, init);
-    emit_store(parse, var);
+    emit_store(parse, var, init->type);
   } else {
     emit_declaration_init_array(parse, var, var->type, init->init_list, 0);
   }
@@ -474,20 +689,45 @@ static void emit_declaration_init(parse_t *parse, node_t *var, node_t *init) {
 static void emit_call(parse_t *parse, node_t *node) {
   int i;
   vector_t *iargs = vector_new();
+  vector_t *xargs = vector_new();
   vector_t *rargs = vector_new();
   for (i = 0; i < node->args->size; i++) {
     node_t *n = (node_t *)node->args->data[i];
-    vector_push(iargs->size < 6 ? iargs : rargs, n);
+    if (type_is_float(n->type)) {
+      vector_push(xargs->size < 8 ? xargs : rargs, n);
+    } else {
+      vector_push(iargs->size < 6 ? iargs : rargs, n);
+    }
   }
   // store registers
   for (i = 0; i < iargs->size; i++) {
     emit_push(parse, REGS[i]);
   }
+  for (i = 1; i < xargs->size; i++) {
+    emit_push_xmm(parse, i);
+  }
   // build arguments
   for (i = rargs->size - 1; i >= 0; i--) {
     node_t *n = (node_t *)rargs->data[i];
     emit_expression(parse, n);
-    emit_push(parse, "rax");
+    if (type_is_float(n->type)) {
+      emit_push_xmm(parse, 0);
+    } else {
+      emit_push(parse, "rax");
+    }
+  }
+  for (i = xargs->size - 1; i >= 0 ; i--) {
+    node_t *n = (node_t *)xargs->data[i];
+    emit_expression(parse, n);
+    if (n->type->kind == TYPE_KIND_DOUBLE || n->type->kind == TYPE_KIND_LDOUBLE) {
+      if (i != 0) {
+        emitf("movsd %%xmm0, %%xmm%d", i);
+      }
+    } else {
+      if (i != 0) {
+        emitf("movss %%xmm0, %%xmm%d", i);
+      }
+    }
   }
   for (i = 0; i < iargs->size; i++) {
     node_t *n = (node_t *)iargs->data[i];
@@ -495,18 +735,22 @@ static void emit_call(parse_t *parse, node_t *node) {
     emitf("mov %%rax, %%%s", REGS[i]);
   }
   // call function
-  emitf("mov $0, %%eax");
+  emitf("mov $%d, %%eax", xargs->size);
   emitf("call %s", node->func->identifier);
   // restore registers
   int rsize = rargs->size * 8;
   if (rsize > 0) {
     emitf("add $%d, %%rsp", rsize);
   }
+  for (i = xargs->size - 1; i > 0; i--) {
+    emit_pop_xmm(parse, i);
+  }
   for (i = iargs->size - 1; i >= 0; i--) {
     emit_pop(parse, REGS[i]);
   }
 
   vector_free(iargs);
+  vector_free(xargs);
   vector_free(rargs);
 }
 
@@ -610,6 +854,11 @@ static void emit_expression(parse_t *parse, node_t *node) {
       case TYPE_KIND_LLONG:
         emit_int(parse, node);
         break;
+      case TYPE_KIND_FLOAT:
+      case TYPE_KIND_DOUBLE:
+      case TYPE_KIND_LDOUBLE:
+        emit_float(parse, node);
+        break;
       default:
         errorf("unknown literal type: %d", node->type);
       }
@@ -686,17 +935,29 @@ static void emit_function(parse_t *parse, node_t *node) {
   emitf("mov %%rsp, %%rbp");
 
   int offset = 0, spoffset = 16;
-  int i, iargs = 0;
+  int i, iargs = 0, xargs = 0;
   for (i = 0; i < node->fargs->size; i++) {
     node_t *n = (node_t *)node->fargs->data[i];
-    if (iargs < 6) {
-      offset += 8;
-      align(&offset, 8);
-      n->voffset = offset;
-      emitf("mov %%%s, %d(%%rbp)", REGS[iargs++], -offset);
+    if (type_is_float(n->type)) {
+      if (xargs < 8) {
+        offset += 8;
+        align(&offset, 8);
+        n->voffset = offset;
+        emitf("movsd %%xmm%d, %d(%%rbp)", xargs++, -offset);
+      } else {
+        n->voffset = -spoffset;
+        spoffset += 8;
+      }
     } else {
-      n->voffset = -spoffset;
-      spoffset += 8;
+      if (iargs < 6) {
+        offset += 8;
+        align(&offset, 8);
+        n->voffset = offset;
+        emitf("mov %%%s, %d(%%rbp)", REGS[iargs++], -offset);
+      } else {
+        n->voffset = -spoffset;
+        spoffset += 8;
+      }
     }
   }
   offset = placement_variables(node->fbody, offset);
@@ -788,8 +1049,23 @@ static void emit_data_section(parse_t *parse) {
   emitf(".data");
   for (int i = 0; i < data->size; i++) {
     node_t *n = (node_t *)data->data[i];
-    emitf_noindent(".STR_%d:", n->sid);
-    emit_string_data(n->sval);
+    if (n->kind == NODE_KIND_LITERAL) {
+      if (n->type->kind == TYPE_KIND_FLOAT) {
+        float fval = n->fval;
+        emitf_noindent(".FLT_%d:", n->fid);
+        emitf(".long %d", *(uint32_t *)&fval);
+      } else if (n->type->kind == TYPE_KIND_DOUBLE || n->type->kind == TYPE_KIND_LDOUBLE) {
+        emitf_noindent(".DBL_%d:", n->fid);
+        emitf(".quad %ld", *(uint64_t *)&n->fval);
+      } else {
+        errorf("the literal type is not supported yet: %s", n->type->name);
+      }
+    } else if (n->kind == NODE_KIND_STRING_LITERAL) {
+      emitf_noindent(".STR_%d:", n->sid);
+      emit_string_data(n->sval);
+    } else {
+      errorf("invalid data node type");
+    }
   }
   for (int i = 0; i < parse->statements->size; i++) {
     node_t *node = (node_t *)parse->statements->data[i];

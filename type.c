@@ -11,6 +11,8 @@ const char *type_kind_names[] = {
   "int",
   "long",
   "long long",
+  "float",
+  "double",
   "*",
   "[]",
 };
@@ -33,6 +35,7 @@ type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int s
     t->bytes = 2;
     break;
   case TYPE_KIND_INT:
+  case TYPE_KIND_FLOAT:
     t->bytes = 4;
     break;
   default:
@@ -159,4 +162,11 @@ bool type_is_int(type_t *type) {
     type->kind == TYPE_KIND_INT ||
     type->kind == TYPE_KIND_LONG ||
     type->kind == TYPE_KIND_LLONG;
+}
+
+bool type_is_float(type_t *type) {
+  return
+    type->kind == TYPE_KIND_FLOAT ||
+    type->kind == TYPE_KIND_DOUBLE ||
+    type->kind == TYPE_KIND_LDOUBLE;
 }

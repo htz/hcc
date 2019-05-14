@@ -11,6 +11,8 @@ static const char *token_names[] = {
   "ULONG",
   "LLONG",
   "ULLONG",
+  "FLOAT",
+  "DOUBLE",
   "STRING",
   "KEYWORD",
   "IDENTIFIER",
