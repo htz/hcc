@@ -23,12 +23,15 @@ static node_t *relational_expression(parse_t *parse);
 static node_t *shift_expression(parse_t *parse);
 static node_t *additive_expression(parse_t *parse);
 static node_t *multiplicative_expression(parse_t *parse);
+static node_t *cast_expression(parse_t *parse);
 static node_t *unary_expression(parse_t *parse);
 static vector_t *func_args(parse_t *parse);
 static node_t *postfix_expression(parse_t *parse);
 static node_t *primary_expression(parse_t *parse);
 static node_t *expression(parse_t *parse);
 static node_t *assignment_expression(parse_t *parse);
+static type_t *type_name(parse_t *parse);
+static type_t *abstract_declarator(parse_t *parse, type_t *type);
 static node_t *declaration(parse_t *parse, type_t *type);
 static node_t *init_declarator(parse_t *parse, node_t *var);
 static node_t *initializer(parse_t *parse, type_t *type);
@@ -122,6 +125,11 @@ static type_t *op_result(parse_t *parse, int op, type_t *left, type_t *right) {
         type = right;
       }
       break;
+    case TYPE_KIND_FLOAT:
+    case TYPE_KIND_DOUBLE:
+    case TYPE_KIND_LDOUBLE:
+      type = right;
+      break;
     case TYPE_KIND_PTR:
     case TYPE_KIND_ARRAY:
       if (
@@ -136,6 +144,28 @@ static type_t *op_result(parse_t *parse, int op, type_t *left, type_t *right) {
     default:
       errorf("unknown type: %s", right->name);
     }
+    break;
+  case TYPE_KIND_FLOAT:
+  case TYPE_KIND_DOUBLE:
+  case TYPE_KIND_LDOUBLE:
+    switch (right->kind) {
+    case TYPE_KIND_FLOAT:
+    case TYPE_KIND_DOUBLE:
+    case TYPE_KIND_LDOUBLE:
+      if (left->kind == TYPE_KIND_DOUBLE || left->kind == TYPE_KIND_LDOUBLE) {
+        type = left;
+      } else {
+        type = right;
+      }
+      break;
+    }
+    break;
+  case TYPE_KIND_PTR:
+  case TYPE_KIND_ARRAY:
+    if (op != '+' && op != '-') {
+      errorf("invalid operands to binary %c", op);
+    }
+    type = right;
     break;
   }
   if (type == NULL) {
@@ -234,6 +264,24 @@ static type_t *select_type(parse_t *parse, int kind, int sign, int size) {
       return parse->type_char;
     }
     return sign == 0 ? parse->type_uchar : parse->type_schar;
+  case TYPE_KIND_FLOAT:
+    if (size != -1) {
+      errorf("'%s float' is invalid", type_kind_names_str(size));
+    }
+    if (sign != -1) {
+      errorf("'float' cannot be signed or unsigned");
+    }
+    return parse->type_float;
+  case TYPE_KIND_DOUBLE:
+    if (sign != -1) {
+      errorf("'float' cannot be signed or unsigned");
+    }
+    if (size == TYPE_KIND_LONG) {
+      return parse->type_ldouble;
+    } else if (size != -1) {
+      errorf("'%s float' is invalid", type_kind_names_str(size));
+    }
+    return parse->type_double;
   }
   if (size == TYPE_KIND_SHORT) {
     return sign == 0 ? parse->type_ushort : parse->type_short;
@@ -324,8 +372,10 @@ static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep) {
     return type;
   }
 
-  token_t *token = lex_expect_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
-  *namep = token->identifier;
+  if (namep) {
+    token_t *token = lex_expect_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+    *namep = token->identifier;
+  }
   if (lex_next_keyword_is(parse->lex, '[')) {
     node_t *size = NULL;
     if (!lex_next_keyword_is(parse->lex, ']')) {
@@ -391,6 +441,9 @@ static node_t *inclusive_or_expression(parse_t *parse) {
       break;
     }
     node_t *right = exclusive_or_expression(parse);
+    if (!type_is_int(node->type) || !type_is_int(right->type)) {
+      errorf("invalid operands to binary expression ('%s' and '%s')", node->type->name, right->type->name);
+    }
     node = node_new_binary_op(parse, parse->type_int, '|', node, right);
   }
   return node;
@@ -403,6 +456,9 @@ static node_t *exclusive_or_expression(parse_t *parse) {
       break;
     }
     node_t *right = and_expression(parse);
+    if (!type_is_int(node->type) || !type_is_int(right->type)) {
+      errorf("invalid operands to binary expression ('%s' and '%s')", node->type->name, right->type->name);
+    }
     node = node_new_binary_op(parse, parse->type_int, '^', node, right);
   }
   return node;
@@ -415,6 +471,9 @@ static node_t *and_expression(parse_t *parse) {
       break;
     }
     node_t *right = equality_expression(parse);
+    if (!type_is_int(node->type) || !type_is_int(right->type)) {
+      errorf("invalid operands to binary expression ('%s' and '%s')", node->type->name, right->type->name);
+    }
     node = node_new_binary_op(parse, parse->type_int, '&', node, right);
   }
   return node;
@@ -470,6 +529,9 @@ static node_t *shift_expression(parse_t *parse) {
       break;
     }
     node_t *right = additive_expression(parse);
+    if (!type_is_int(node->type) || !type_is_int(right->type)) {
+      errorf("invalid operands to binary expression ('%s' and '%s')", node->type->name, right->type->name);
+    }
     node = node_new_binary_op(parse, node->type, op, node, right);
   }
   return node;
@@ -502,7 +564,7 @@ static node_t *additive_expression(parse_t *parse) {
 }
 
 static node_t *multiplicative_expression(parse_t *parse) {
-  node_t *node = unary_expression(parse);
+  node_t *node = cast_expression(parse);
   for (;;) {
     int op;
     if (lex_next_keyword_is(parse->lex, '*')) {
@@ -514,11 +576,32 @@ static node_t *multiplicative_expression(parse_t *parse) {
     } else {
       break;
     }
-    node_t *right = unary_expression(parse);
+    node_t *right = cast_expression(parse);
     type_t *type = op_result(parse, op, node->type, right->type);
     node = node_new_binary_op(parse, type, op, node, right);
   }
   return node;
+}
+
+static node_t *cast_expression(parse_t *parse) {
+  token_t *token = lex_next_keyword_is(parse->lex, '(');
+  if (token == NULL) {
+    return unary_expression(parse);
+  }
+  type_t *type = type_name(parse);
+  if (type == NULL) {
+    lex_unget_token(parse->lex, token);
+    return unary_expression(parse);
+  }
+  lex_expect_keyword_is(parse->lex, ')');
+  if (type->kind == TYPE_KIND_ARRAY) {
+    errorf("cast to incomplete type '%s'", type->name);
+  }
+  node_t *node = cast_expression(parse);
+  if (type->kind == TYPE_KIND_ARRAY) {
+    errorf("used type '%s' where arithmetic or pointer type is required", type->name);
+  }
+  return node_new_unary_op(parse, type, OP_CAST, node);
 }
 
 static node_t *unary_expression(parse_t *parse) {
@@ -662,6 +745,22 @@ static node_t *primary_expression(parse_t *parse) {
     return node_new_int(parse, parse->type_llong, token->ival);
   case TOKEN_KIND_ULLONG:
     return node_new_int(parse, parse->type_ullong, token->ival);
+  case TOKEN_KIND_FLOAT:
+    if (parse->current_function) {
+      node = node_new_float(parse, parse->type_float, token->fval, parse->data->size);
+      vector_push(parse->data, node);
+    } else {
+      node = node_new_float(parse, parse->type_float, token->fval, -1);
+    }
+    return node;
+  case TOKEN_KIND_DOUBLE:
+    if (parse->current_function) {
+      node = node_new_float(parse, parse->type_double, token->fval, parse->data->size);
+      vector_push(parse->data, node);
+    } else {
+      node = node_new_float(parse, parse->type_double, token->fval, -1);
+    }
+    return node;
   case TOKEN_KIND_STRING:
     if (parse->current_function) {
       node = node_new_string(parse, token->sval, parse->data->size);
@@ -730,6 +829,19 @@ static node_t *assignment_expression(parse_t *parse) {
     }
   }
   return node;
+}
+
+static type_t *type_name(parse_t *parse) {
+  type_t *type = declaration_specifier(parse);
+  if (type == NULL) {
+    return NULL;
+  }
+  type = abstract_declarator(parse, type);
+  return type;
+}
+
+static type_t *abstract_declarator(parse_t *parse, type_t *type) {
+  return declarator(parse, type, NULL);
 }
 
 static node_t *declaration(parse_t *parse, type_t *type) {
@@ -1007,6 +1119,12 @@ static parse_t *parse_new(FILE *fp) {
   type_add(parse, parse->type_llong->name, parse->type_llong);
   parse->type_ullong = type_new("unsigned long long", TYPE_KIND_LLONG, false, NULL);
   type_add(parse, parse->type_ullong->name, parse->type_ullong);
+  parse->type_float = type_new("float", TYPE_KIND_FLOAT, false, NULL);
+  type_add(parse, parse->type_float->name, parse->type_float);
+  parse->type_double = type_new("double", TYPE_KIND_DOUBLE, false, NULL);
+  type_add(parse, parse->type_double->name, parse->type_double);
+  parse->type_ldouble = type_new("long double", TYPE_KIND_LDOUBLE, false, NULL);
+  type_add(parse, parse->type_ldouble->name, parse->type_ldouble);
 
   return parse;
 }

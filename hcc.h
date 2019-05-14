@@ -57,6 +57,9 @@ enum {
   TYPE_KIND_INT,
   TYPE_KIND_LONG,
   TYPE_KIND_LLONG,
+  TYPE_KIND_FLOAT,
+  TYPE_KIND_DOUBLE,
+  TYPE_KIND_LDOUBLE,
   TYPE_KIND_PTR,
   TYPE_KIND_ARRAY,
 };
@@ -80,6 +83,8 @@ enum {
   TOKEN_KIND_ULONG,
   TOKEN_KIND_LLONG,
   TOKEN_KIND_ULLONG,
+  TOKEN_KIND_FLOAT,
+  TOKEN_KIND_DOUBLE,
   TOKEN_KIND_STRING,
   TOKEN_KIND_KEYWORD,
   TOKEN_KIND_IDENTIFIER,
@@ -110,6 +115,7 @@ enum {
   OP_PDEC,   // @--
   OP_ANDAND, // &&
   OP_OROR,   // ||
+  OP_CAST,
   OP_ASSIGN_MASK = 0x1000,
 };
 
@@ -120,6 +126,7 @@ struct token {
   int column;
   union {
     long ival;
+    double fval;
     string_t *sval;
     int keyword;
     char *identifier;
@@ -172,6 +179,11 @@ struct node {
   union {
     char *identifier;
     long ival;
+    // float/double Literal
+    struct {
+      double fval;
+      int fid;
+    };
     // String literal
     struct {
       string_t *sval;
@@ -269,6 +281,9 @@ struct parse {
   type_t *type_ulong;
   type_t *type_llong;
   type_t *type_ullong;
+  type_t *type_float;
+  type_t *type_double;
+  type_t *type_ldouble;
 };
 
 // vector.c
@@ -312,6 +327,7 @@ type_t *type_make_array(parse_t *parse, type_t *parent, int size);
 bool type_is_assignable(type_t *a, type_t *b);
 const char *type_kind_names_str(int kind);
 bool type_is_int(type_t *type);
+bool type_is_float(type_t *type);
 
 // token.c
 token_t *token_new(lex_t *lex, int kind);
@@ -334,6 +350,7 @@ token_t *lex_expect_keyword_is(lex_t *lex, int k);
 node_t *node_new_nop(parse_t *parse);
 node_t *node_new_identifier(parse_t *parse, char *identifier);
 node_t *node_new_int(parse_t *parse, type_t *type, long ival);
+node_t *node_new_float(parse_t *parse, type_t *type, double fval, int fid);
 node_t *node_new_string(parse_t *parse, string_t *sval, int sid);
 node_t *node_new_init_list(parse_t *parse, type_t *type, vector_t *init);
 node_t *node_new_variable(parse_t *parse, type_t *type, char *vname, bool global);
