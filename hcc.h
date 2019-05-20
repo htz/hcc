@@ -284,6 +284,8 @@ struct parse {
   type_t *type_float;
   type_t *type_double;
   type_t *type_ldouble;
+  // gen state
+  int stackpos;
 };
 
 // vector.c

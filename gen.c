@@ -7,6 +7,7 @@
 #include "hcc.h"
 
 static const char *REGS[] = {"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
+static const char *MREGS[] = {"edi", "esi", "edx", "ecx", "r8d", "r9d"};
 
 static void emitf_noindent(char *fmt, ...);
 static void emitf(char *fmt, ...);
@@ -14,6 +15,7 @@ static void emit_push(parse_t *parse, const char *reg);
 static void emit_pop(parse_t *parse, const char *reg);
 static void emit_push_xmm(parse_t *parse, int n);
 static void emit_pop_xmm(parse_t *parse, int n);
+static void emit_add_rsp(parse_t *parse, int n);
 static void emit_int(parse_t *parse, node_t *node);
 static void emit_float(parse_t *parse, node_t *node);
 static void emit_string(parse_t *parse, node_t *node);
@@ -57,20 +59,33 @@ static void emitf(char *fmt, ...) {
 
 static void emit_push(parse_t *parse, const char *reg) {
   emitf("push %%%s", reg);
+  parse->stackpos += 8;
 }
 
 static void emit_pop(parse_t *parse, const char *reg) {
   emitf("pop %%%s", reg);
+  parse->stackpos -= 8;
+  assert(parse->stackpos >= 0);
 }
 
 static void emit_push_xmm(parse_t *parse, int n) {
-  emitf("sub $8, %%rsp");
+  emit_add_rsp(parse, -8);
   emitf("movsd %%xmm%d, (%%rsp)", n);
 }
 
 static void emit_pop_xmm(parse_t *parse, int n) {
   emitf("movsd (%%rsp), %%xmm%d", n);
-  emitf("add $8, %%rsp");
+  emit_add_rsp(parse, 8);
+}
+
+static void emit_add_rsp(parse_t *parse, int n) {
+  if (n > 0) {
+    emitf("add $%d, %%rsp", n);
+  } else if (n < 0) {
+    emitf("sub $%d, %%rsp", -n);
+  }
+  parse->stackpos -= n;
+  assert(parse->stackpos >= 0);
 }
 
 static void emit_int(parse_t *parse, node_t *node) {
@@ -699,6 +714,7 @@ static void emit_call(parse_t *parse, node_t *node) {
       vector_push(iargs->size < 6 ? iargs : rargs, n);
     }
   }
+  int old_stackpos = parse->stackpos;
   // store registers
   for (i = 0; i < iargs->size; i++) {
     emit_push(parse, REGS[i]);
@@ -706,6 +722,9 @@ static void emit_call(parse_t *parse, node_t *node) {
   for (i = 1; i < xargs->size; i++) {
     emit_push_xmm(parse, i);
   }
+  // fix sp
+  int padding = parse->stackpos % 16;
+  emit_add_rsp(parse, -padding);
   // build arguments
   for (i = rargs->size - 1; i >= 0; i--) {
     node_t *n = (node_t *)rargs->data[i];
@@ -738,16 +757,15 @@ static void emit_call(parse_t *parse, node_t *node) {
   emitf("mov $%d, %%eax", xargs->size);
   emitf("call %s", node->func->identifier);
   // restore registers
-  int rsize = rargs->size * 8;
-  if (rsize > 0) {
-    emitf("add $%d, %%rsp", rsize);
-  }
+  int rsize = rargs->size * 8 + padding;
+  emit_add_rsp(parse, rsize);
   for (i = xargs->size - 1; i > 0; i--) {
     emit_pop_xmm(parse, i);
   }
   for (i = iargs->size - 1; i >= 0; i--) {
     emit_pop(parse, REGS[i]);
   }
+  assert(old_stackpos == parse->stackpos);
 
   vector_free(iargs);
   vector_free(xargs);
@@ -928,6 +946,7 @@ static int placement_variables(node_t *node, int offset) {
 }
 
 static void emit_function(parse_t *parse, node_t *node) {
+  parse->stackpos = 8;
   emitf(".text");
   emitf_noindent(".global %s", node->fvar->vname);
   emitf_noindent("%s:", node->fvar->vname);
@@ -935,25 +954,46 @@ static void emit_function(parse_t *parse, node_t *node) {
   emitf("mov %%rsp, %%rbp");
 
   int offset = 0, spoffset = 16;
-  int i, iargs = 0, xargs = 0;
-  for (i = 0; i < node->fargs->size; i++) {
+  int iargs = 0, xargs = 0;
+  for (int i = 0; i < node->fargs->size; i++) {
     node_t *n = (node_t *)node->fargs->data[i];
     if (type_is_float(n->type)) {
       if (xargs < 8) {
-        offset += 8;
+        offset += n->type->bytes;
         align(&offset, 8);
         n->voffset = offset;
-        emitf("movsd %%xmm%d, %d(%%rbp)", xargs++, -offset);
+        if (n->type->kind == TYPE_KIND_FLOAT) {
+          emitf("movss %%xmm%d, %d(%%rbp)", xargs++, -n->voffset);
+        } else {
+          emitf("movsd %%xmm%d, %d(%%rbp)", xargs++, -n->voffset);
+        }
       } else {
         n->voffset = -spoffset;
         spoffset += 8;
       }
     } else {
       if (iargs < 6) {
-        offset += 8;
+        offset += n->type->bytes;
         align(&offset, 8);
         n->voffset = offset;
-        emitf("mov %%%s, %d(%%rbp)", REGS[iargs++], -offset);
+        switch (n->type->bytes) {
+        case 1:
+        emitf("movl %%%s, %%eax", MREGS[iargs++]);
+        emitf("movb %%al, %d(%%rbp)", -n->voffset);
+          break;
+        case 2:
+          emitf("movl %%%s, %%eax", MREGS[iargs++]);
+          emitf("movw %%ax, %d(%%rbp)", -n->voffset);
+          break;
+        case 4:
+          emitf("movl %%%s, %d(%%rbp)", MREGS[iargs++], -n->voffset);
+          break;
+        case 8:
+          emitf("mov %%%s, %d(%%rbp)", REGS[iargs++], -n->voffset);
+          break;
+        default:
+          errorf("invalid variable type");
+        }
       } else {
         n->voffset = -spoffset;
         spoffset += 8;
@@ -963,7 +1003,7 @@ static void emit_function(parse_t *parse, node_t *node) {
   offset = placement_variables(node->fbody, offset);
   align(&offset, 8);
 
-  emitf("sub $%d, %%rsp", offset);
+  emit_add_rsp(parse, -offset);
   emit_expression(parse, node->fbody);
   emitf("leave");
   emitf("ret");
