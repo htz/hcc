@@ -9,6 +9,10 @@
 static node_t *external_declaration(parse_t *parse);
 static node_t *function_definition(parse_t *parse, node_t *var);
 static type_t *declaration_specifier(parse_t *parse);
+static type_t *struct_or_union_specifier(parse_t *parse);
+static void struct_declaration(parse_t *parse, type_t *type, type_t *field_type);
+static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type);
+static type_t *declarator_array(parse_t *parse, type_t *type);
 static node_t *variable_declarator(parse_t *parse, type_t *type);
 static type_t *declarator(parse_t *parse, type_t *type, char **namep);
 static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep);
@@ -243,9 +247,12 @@ static node_t *function_definition(parse_t *parse, node_t *var) {
   return node;
 }
 
-static type_t *select_type(parse_t *parse, int kind, int sign, int size) {
+static type_t *select_type(parse_t *parse, type_t *type, int kind, int sign, int size) {
   if (kind == -1 && sign == -1 && size == -1) {
-    return NULL;
+    return type;
+  }
+  if (type != NULL) {
+    errorf("two or more data types in declaration specifiers");
   }
   switch (kind) {
   case TYPE_KIND_VOID:
@@ -297,6 +304,7 @@ static type_t *select_type(parse_t *parse, int kind, int sign, int size) {
 
 static type_t *declaration_specifier(parse_t *parse) {
   int kind = -1, sign = -1, size = -1;
+  type_t *type = NULL;
   token_t *token;
   while ((token = lex_get_token(parse->lex)) != NULL) {
     if (token->kind == TOKEN_KIND_KEYWORD) {
@@ -306,6 +314,12 @@ static type_t *declaration_specifier(parse_t *parse) {
       } else if (token->keyword == TOKEN_KEYWORD_UNSIGNED) {
         sign = 0;
         continue;
+      } else if (token->keyword == TOKEN_KEYWORD_STRUCT) {
+        if (type != NULL) {
+          errorf("cannot combine with previous '%s' declaration specifier", type->name);
+        }
+        type = struct_or_union_specifier(parse);
+        break;
       }
     } else if (token->kind == TOKEN_KIND_IDENTIFIER) {
       type_t *t = type_get(parse, token->identifier, NULL);
@@ -332,7 +346,109 @@ static type_t *declaration_specifier(parse_t *parse) {
     lex_unget_token(parse->lex, token);
     break;
   }
-  return select_type(parse, kind, sign, size);
+  return select_type(parse, type, kind, sign, size);
+}
+
+static type_t *make_empty_struct_type(parse_t *parse, token_t *tag) {
+  type_t *type = type_new_struct(NULL);
+  string_t *name = string_new_with("struct ");
+
+  if (tag != NULL) {
+    string_append(name, tag->identifier);
+  } else {
+    string_appendf(name, "$%p", type);
+  }
+  type->name = strdup(name->buf);
+  string_free(name);
+
+  type_add(parse, type->name, type);
+  if (tag != NULL) {
+    type_add_by_tag(parse, tag->identifier, type);
+  }
+
+  return type;
+}
+
+static type_t *struct_or_union_specifier(parse_t *parse) {
+  token_t *tag = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+  type_t *type = NULL;
+
+  if (tag != NULL) {
+    type = type_get_by_tag(parse, tag->identifier, false);
+  }
+  if (!lex_next_keyword_is(parse->lex, '{')) {
+    if (type == NULL) {
+      type = make_empty_struct_type(parse, tag);
+    }
+    return type;
+  }
+  if (type == NULL || type_get_by_tag(parse, tag->identifier, true) == NULL) {
+    type = make_empty_struct_type(parse, tag);
+  } else if (type->fields->size > 0) {
+    errorf("redefinition of '%s'", tag->identifier);
+  }
+  while (!lex_next_keyword_is(parse->lex, '}')) {
+    type_t *field_type = declaration_specifier(parse);
+    struct_declaration(parse, type, field_type);
+  }
+  align(&type->total_size, type->align);
+
+  return type;
+}
+
+static void struct_declaration(parse_t *parse, type_t *type, type_t *field_type) {
+  for (;;) {
+    struct_declarator(parse, type, field_type);
+    if (lex_next_keyword_is(parse->lex, ';')) {
+      break;
+    }
+    lex_expect_keyword_is(parse->lex, ',');
+  }
+  align(&type->total_size, type->align);
+}
+
+static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type) {
+  token_t *token = lex_next_keyword_is(parse->lex, ';');
+  if (field_type->kind == TYPE_KIND_STRUCT && token != NULL) {
+    lex_unget_token(parse->lex, token);
+    align(&type->total_size, 4);
+    for (map_entry_t *e = field_type->fields->top; e != NULL; e = e->next) {
+      node_t *field = (node_t *)e->val;
+      if (map_find(type->fields, field->vname) != NULL) {
+        errorf("duplicate member: %s", field->vname);
+      }
+      node_t *node = node_new_variable(parse, field->type, field->vname, false);
+      align(&type->total_size, field->type->align);
+      node->voffset = type->total_size;
+      type->total_size += field->type->total_size;
+      map_add(type->fields, field->vname, node);
+    }
+    if (type->align < field_type->align) {
+      type->align = field_type->align;
+    }
+    return;
+  }
+  if (token != NULL) {
+    lex_unget_token(parse->lex, token);
+    return;
+  }
+
+  char *name;
+  field_type = declarator(parse, field_type, &name);
+  if (field_type->kind == TYPE_KIND_VOID) {
+    errorf("void is not allowed");
+  }
+  if (map_find(type->fields, name) != NULL) {
+    errorf("duplicate member: %s", name);
+  }
+  node_t *node = node_new_variable(parse, field_type, name, false);
+  align(&type->total_size, field_type->align);
+  node->voffset = type->total_size;
+  type->total_size += field_type->total_size;
+  map_add(type->fields, name, node);
+  if (type->align < field_type->align) {
+    type->align = field_type->align;
+  }
 }
 
 static type_t *declarator_array(parse_t *parse, type_t *type) {
@@ -598,7 +714,10 @@ static node_t *cast_expression(parse_t *parse) {
     errorf("cast to incomplete type '%s'", type->name);
   }
   node_t *node = cast_expression(parse);
-  if (type->kind == TYPE_KIND_ARRAY) {
+  if (node->type->kind == TYPE_KIND_STRUCT) {
+    errorf("operand of type '%s' where arithmetic or pointer type is required", node->type->name);
+  }
+  if (type->kind == TYPE_KIND_ARRAY || type->kind == TYPE_KIND_STRUCT) {
     errorf("used type '%s' where arithmetic or pointer type is required", type->name);
   }
   return node_new_unary_op(parse, type, OP_CAST, node);
@@ -607,14 +726,14 @@ static node_t *cast_expression(parse_t *parse) {
 static node_t *unary_expression(parse_t *parse) {
   if (lex_next_keyword_is(parse->lex, OP_INC)) {
     node_t *node = unary_expression(parse);
-    if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*')) {
+    if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
       return node_new_unary_op(parse, node->type, OP_INC, node);
     } else {
       errorf("expression is not assignable");
     }
   } else if (lex_next_keyword_is(parse->lex, OP_DEC)) {
     node_t *node = unary_expression(parse);
-    if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*')) {
+    if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
       return node_new_unary_op(parse, node->type, OP_DEC, node);
     } else {
       errorf("expression is not assignable");
@@ -655,7 +774,7 @@ static node_t *unary_expression(parse_t *parse) {
   } else if (lex_next_keyword_is(parse->lex, '&')) {
     node_t *node = unary_expression(parse);
     type_t *type = type_get_ptr(parse, node->type);
-    if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*')) {
+    if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
       return node_new_unary_op(parse, type, '&', node);
     } else {
       errorf("cannot take the address of an rvalue of type '%s'", type->name);
@@ -700,14 +819,40 @@ static node_t *postfix_expression(parse_t *parse) {
       node = node_new_binary_op(parse, type, '+', node, expression(parse));
       lex_expect_keyword_is(parse->lex, ']');
       node = node_new_unary_op(parse, type->parent, '*', node);
+    } else if (lex_next_keyword_is(parse->lex, '.')) {
+      if (node->type->kind != TYPE_KIND_STRUCT) {
+        errorf("member reference base type '%s' is not a structure or union", node->type->name);
+      }
+      token_t *token = lex_expect_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+      map_entry_t *e = map_find(node->type->fields, token->identifier);
+      if (e == NULL) {
+        errorf("no member named '%s' in '%s'", token->identifier, node->type->fields);
+      }
+      node_t *var = (node_t *)e->val;
+      node = node_new_binary_op(parse, var->type, '.', node, var);
+    } else if (lex_next_keyword_is(parse->lex, OP_ARROW)) {
+      if (node->type->kind == TYPE_KIND_STRUCT) {
+        errorf("member reference type '%s' is not a pointer; did you mean to use '.'?", node->type->name);
+      }
+      if (node->type->kind != TYPE_KIND_PTR || node->type->parent->kind != TYPE_KIND_STRUCT) {
+        errorf("member reference base type '%s' is not a structure or union", node->type->name);
+      }
+      token_t *token = lex_expect_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+      map_entry_t *e = map_find(node->type->parent->fields, token->identifier);
+      if (e == NULL) {
+        errorf("no member named '%s' in '%s'", token->identifier, node->type->fields);
+      }
+      node_t *var = (node_t *)e->val;
+      node = node_new_unary_op(parse, node->type->parent, '*', node);
+      node = node_new_binary_op(parse, var->type, '.', node, var);
     } else if (lex_next_keyword_is(parse->lex, OP_INC)) {
-      if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*')) {
+      if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
         node = node_new_unary_op(parse, node->type, OP_PINC, node);
       } else {
         errorf("expression is not assignable");
       }
     } else if (lex_next_keyword_is(parse->lex, OP_DEC)) {
-      if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*')) {
+      if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
         node = node_new_unary_op(parse, node->type, OP_PDEC, node);
       } else {
         errorf("expression is not assignable");
@@ -820,7 +965,7 @@ static node_t *assignment_expression(parse_t *parse) {
     } else {
       break;
     }
-    if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*')) {
+    if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
       node_t *right = assignment_expression(parse);
       type_t *type = op_result(parse, op, node->type, right->type);
       node = node_new_binary_op(parse, type, op, node, right);
@@ -1092,6 +1237,7 @@ static parse_t *parse_new(FILE *fp) {
   parse->nodes = vector_new();
   parse->vars = map_new();
   parse->types = map_new();
+  parse->tags = map_new();
   parse->current_scope = NULL;
   parse->next_scope = NULL;
 
@@ -1140,6 +1286,7 @@ void parse_free(parse_t *parse) {
   map_free(parse->vars);
   parse->types->free_val_fn = (void (*)(void *))type_free;
   map_free(parse->types);
+  map_free(parse->tags);
   free(parse);
 }
 

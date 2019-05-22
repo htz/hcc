@@ -62,6 +62,7 @@ enum {
   TYPE_KIND_LDOUBLE,
   TYPE_KIND_PTR,
   TYPE_KIND_ARRAY,
+  TYPE_KIND_STRUCT,
 };
 
 typedef struct type type_t;
@@ -72,7 +73,9 @@ struct type {
   type_t *parent;
   int bytes;
   int size;
+  int align;
   int total_size;
+  map_t *fields;
 };
 
 enum {
@@ -103,6 +106,7 @@ enum {
   TOKEN_KEYWORD_CONTINUE,
   TOKEN_KEYWORD_SIGNED,
   TOKEN_KEYWORD_UNSIGNED,
+  TOKEN_KEYWORD_STRUCT,
   OP_SAL,    // <<
   OP_SAR,    // >>
   OP_EQ,     // ==
@@ -115,6 +119,7 @@ enum {
   OP_PDEC,   // @--
   OP_ANDAND, // &&
   OP_OROR,   // ||
+  OP_ARROW,  // ->
   OP_CAST,
   OP_ASSIGN_MASK = 0x1000,
 };
@@ -231,6 +236,8 @@ struct node {
       int bkind;
       vector_t *statements;
       map_t *vars;
+      map_t *types;
+      map_t *tags;
       node_t *parent_block;
       vector_t *child_blocks;
       node_t *parent_node;
@@ -265,6 +272,7 @@ struct parse {
   vector_t *nodes;
   map_t *vars;
   map_t *types;
+  map_t *tags;
   node_t *current_function;
   node_t *current_scope;
   node_t *next_scope;
@@ -320,11 +328,14 @@ void align(int *np, int a);
 // type.c
 type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int size);
 type_t *type_new(char *name, int kind, int sign, type_t *ptr);
+type_t *type_new_struct(char *name);
 void type_free(type_t *t);
 type_t *type_find(parse_t *parse, char *name);
 void type_add(parse_t *parse, char *name, type_t *type);
 type_t *type_get(parse_t *parse, char *name, type_t *parent);
 type_t *type_get_ptr(parse_t *parse, type_t *type);
+void type_add_by_tag(parse_t *parse, char *tag, type_t *type);
+type_t *type_get_by_tag(parse_t *parse, char *tag, bool local_only);
 type_t *type_make_array(parse_t *parse, type_t *parent, int size);
 bool type_is_assignable(type_t *a, type_t *b);
 const char *type_kind_names_str(int kind);

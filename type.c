@@ -19,7 +19,11 @@ const char *type_kind_names[] = {
 
 type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int size) {
   type_t *t = (type_t *)malloc(sizeof (type_t));
-  t->name = strdup(name);
+  if (name != NULL) {
+    t->name = strdup(name);
+  } else {
+    t->name = NULL;
+  }
   t->kind = kind;
   t->sign = sign;
   t->sign = sign;
@@ -27,19 +31,33 @@ type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int s
   switch (kind) {
   case TYPE_KIND_VOID:
     t->bytes = 1;
+    t->align = 1;
     break;
   case TYPE_KIND_CHAR:
     t->bytes = 1;
+    t->align = 1;
     break;
   case TYPE_KIND_SHORT:
     t->bytes = 2;
+    t->align = 2;
     break;
   case TYPE_KIND_INT:
   case TYPE_KIND_FLOAT:
     t->bytes = 4;
+    t->align = 4;
+    break;
+  case TYPE_KIND_ARRAY:
+    assert(t->parent != NULL);
+    t->bytes = 8;
+    t->align = t->parent->align;
+    break;
+  case TYPE_KIND_STRUCT:
+    t->bytes = 0;
+    t->align = 0;
     break;
   default:
     t->bytes = 8;
+    t->align = 8;
   }
   t->size = size;
   if (size == 0) {
@@ -48,6 +66,7 @@ type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int s
     assert(t->parent != NULL);
     t->total_size = t->parent->total_size * size;
   }
+  t->fields = NULL;
   return t;
 }
 
@@ -55,22 +74,42 @@ type_t *type_new(char *name, int kind, int sign, type_t *parent) {
   return type_new_with_size(name, kind, sign, parent, 0);
 }
 
+type_t *type_new_struct(char *name) {
+  type_t *t = type_new(name, TYPE_KIND_STRUCT, false, NULL);
+  t->total_size = 0;
+  t->fields = map_new();
+  return t;
+}
+
 void type_free(type_t *t) {
-  free(t->name);
+  if (t->name != NULL) {
+    free(t->name);
+  }
+  if (t->fields != NULL) {
+    map_free(t->fields);
+  }
   free(t);
 }
 
 type_t *type_find(parse_t *parse, char *name) {
-  map_entry_t *e = map_find(parse->types, name);
-  if (e == NULL) {
-    return NULL;
+  for (node_t *scope = parse->current_scope; scope != NULL; scope = scope->parent_block) {
+    type_t *type = (type_t *)map_get(scope->types, name);
+    if (type != NULL) {
+      return type;
+    }
   }
-  return (type_t *)e->val;
+  return (type_t *)map_get(parse->types, name);
 }
 
 void type_add(parse_t *parse, char *name, type_t *type) {
-  assert(type_find(parse, name) == NULL);
-  map_add(parse->types, name, type);
+  map_t *types;
+  if (parse->current_scope) {
+    types = parse->current_scope->types;
+  } else {
+    types = parse->types;
+  }
+  assert(map_find(types, name) == NULL);
+  map_add(types, name, type);
 }
 
 type_t *type_get(parse_t *parse, char *name, type_t *parent) {
@@ -91,6 +130,32 @@ type_t *type_get_ptr(parse_t *parse, type_t *type) {
   }
   string_free(name);
   return type;
+}
+
+void type_add_by_tag(parse_t *parse, char *tag, type_t *type) {
+  map_t *tags;
+  if (parse->current_scope) {
+    tags = parse->current_scope->tags;
+  } else {
+    tags = parse->tags;
+  }
+  map_add(tags, tag, type);
+}
+
+type_t *type_get_by_tag(parse_t *parse, char *tag, bool local_only) {
+  if (local_only) {
+    if (parse->current_scope) {
+      return (type_t *)map_get(parse->current_scope->tags, tag);
+    }
+    return (type_t *)map_get(parse->tags, tag);
+  }
+  for (node_t *scope = parse->current_scope; scope != NULL; scope = scope->parent_block) {
+    type_t *type = (type_t *)map_get(scope->tags, tag);
+    if (type != NULL) {
+      return type;
+    }
+  }
+  return (type_t *)map_get(parse->tags, tag);
 }
 
 static char *array_leaf_type(type_t *type) {

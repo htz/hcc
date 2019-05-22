@@ -326,6 +326,9 @@ token_t *lex_get_token(lex_t *lex) {
     if (strcmp("unsigned", token->identifier) == 0) {
       return new_keyword(lex, TOKEN_KEYWORD_UNSIGNED);
     }
+    if (strcmp("struct", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_STRUCT);
+    }
     return token;
   }
   switch (c) {
@@ -343,6 +346,9 @@ token_t *lex_get_token(lex_t *lex) {
     }
     if (next_char(lex, '=')) {
       return new_keyword(lex, '-' | OP_ASSIGN_MASK);
+    }
+    if (next_char(lex, '>')) {
+      return new_keyword(lex, OP_ARROW);
     }
     return new_keyword(lex, '-');
   case '*':
@@ -418,8 +424,13 @@ token_t *lex_get_token(lex_t *lex) {
   case '?': case ':': case '~':
     return new_keyword(lex, c);
   case '.':
+    c = get_char(lex);
     unget_char(lex, c);
-    return read_number(lex, 10);
+    if (isdigit(c)) {
+      unget_char(lex, '.');
+      return read_number(lex, 10);
+    }
+    return new_keyword(lex, '.');
   case '\0':
     return token_new(lex, TOKEN_KIND_EOF);
   }
