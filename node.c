@@ -113,6 +113,8 @@ node_t *node_new_block(parse_t *parse, int kind, vector_t *statements, node_t *b
   node->bkind = kind;
   node->statements = statements;
   node->vars = map_new();
+  node->types = map_new();
+  node->tags = map_new();
   node->parent_block = block;
   if (block != NULL) {
     vector_push(block->child_blocks, node);
@@ -238,6 +240,9 @@ void node_free(node_t *node) {
   case NODE_KIND_BLOCK:
     vector_free(node->statements);
     map_free(node->vars);
+    node->types->free_val_fn = (void (*)(void *))type_free;
+    map_free(node->types);
+    map_free(node->tags);
     vector_free(node->child_blocks);
     break;
   case NODE_KIND_IF:

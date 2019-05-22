@@ -118,6 +118,9 @@ static void emit_global_variable(parse_t *parse, node_t *node) {
     assert(node->type->parent != NULL);
     emitf("lea %s(%%rip), %%rax", node->vname);
     break;
+  case TYPE_KIND_STRUCT:
+    emitf("lea %s(%%rip), %%rax", node->vname);
+    break;
   case TYPE_KIND_FLOAT:
     emitf("movss %s(%%rip), %%xmm0", node->vname);
     break;
@@ -155,6 +158,9 @@ static void emit_variable(parse_t *parse, node_t *node) {
     assert(node->type->parent != NULL);
     emitf("lea %d(%%rbp), %%rax", -node->voffset);
     break;
+  case TYPE_KIND_STRUCT:
+    emitf("lea %d(%%rbp), %%rax", -node->voffset);
+    break;
   case TYPE_KIND_FLOAT:
     emitf("movss %d(%%rbp), %%xmm0", -node->voffset);
     break;
@@ -182,29 +188,61 @@ static void emit_variable(parse_t *parse, node_t *node) {
   }
 }
 
-static void emit_save_global(parse_t *parse, node_t *var, type_t *type) {
-  assert(var->type->kind != TYPE_KIND_ARRAY);
-  switch (var->type->kind) {
+static void emit_save_global_to(parse_t *parse, type_t *type, const char *name, int offset) {
+  switch (type->kind) {
   case TYPE_KIND_FLOAT:
-    emitf("movss %%xmm0, %s(%%rip)", var->vname);
+    emitf("movss %%xmm0, %s%+d(%%rip)", name, offset);
     break;
   case TYPE_KIND_DOUBLE:
   case TYPE_KIND_LDOUBLE:
-    emitf("movsd %%xmm0, %s(%%rip)", var->vname);
+    emitf("movsd %%xmm0, %s%+d(%%rip)", name, offset);
     break;
   default:
-    switch (var->type->bytes) {
+    switch (type->bytes) {
     case 1:
-      emitf("mov %%al, %s(%%rip)", var->vname);
+      emitf("mov %%al, %s%+d(%%rip)", name, offset);
       break;
     case 2:
-      emitf("mov %%ax, %s(%%rip)", var->vname);
+      emitf("mov %%ax, %s%+d(%%rip)", name, offset);
       break;
     case 4:
-      emitf("mov %%eax, %s(%%rip)", var->vname);
+      emitf("mov %%eax, %s%+d(%%rip)", name, offset);
       break;
     case 8:
-      emitf("mov %%rax, %s(%%rip)", var->vname);
+      emitf("mov %%rax, %s%+d(%%rip)", name, offset);
+      break;
+    default:
+      errorf("invalid variable type");
+    }
+  }
+}
+
+static void emit_save_to(parse_t *parse, node_t *var, type_t *type, int offset) {
+  if (var->global) {
+    emit_save_global_to(parse, type, var->vname, offset);
+    return;
+  }
+  switch (type->kind) {
+  case TYPE_KIND_FLOAT:
+    emitf("movss %%xmm0, %d(%%rbp)", -var->voffset + offset);
+    break;
+  case TYPE_KIND_DOUBLE:
+  case TYPE_KIND_LDOUBLE:
+    emitf("movsd %%xmm0, %d(%%rbp)", -var->voffset + offset);
+    break;
+  default:
+    switch (type->bytes) {
+    case 1:
+      emitf("mov %%al, %d(%%rbp)", -var->voffset + offset);
+      break;
+    case 2:
+      emitf("mov %%ax, %d(%%rbp)", -var->voffset + offset);
+      break;
+    case 4:
+      emitf("mov %%eax, %d(%%rbp)", -var->voffset + offset);
+      break;
+    case 8:
+      emitf("mov %%rax, %d(%%rbp)", -var->voffset + offset);
       break;
     default:
       errorf("invalid variable type");
@@ -213,37 +251,55 @@ static void emit_save_global(parse_t *parse, node_t *var, type_t *type) {
 }
 
 static void emit_save(parse_t *parse, node_t *var, type_t *type, int base, int at) {
-  if (var->global) {
-    assert(base == 0 && at == 0);
-    emit_save_global(parse, var, type);
-    return;
-  }
-  switch (type->kind) {
-  case TYPE_KIND_FLOAT:
-    emitf("movss %%xmm0, %d(%%rbp)", -var->voffset + base + type->bytes * at);
-    break;
-  case TYPE_KIND_DOUBLE:
-  case TYPE_KIND_LDOUBLE:
-    emitf("movsd %%xmm0, %d(%%rbp)", -var->voffset + base + type->bytes * at);
-    break;
-  default:
-    switch (type->bytes) {
-    case 1:
-      emitf("mov %%al, %d(%%rbp)", -var->voffset + base + type->bytes * at);
+  emit_save_to(parse, var, type, base + type->bytes * at);
+}
+
+static void emit_store_struct(parse_t *parse, node_t *var, type_t *type, int offset) {
+  if (var->kind == NODE_KIND_UNARY_OP && var->op == '*') {
+    if (type_is_float(type)) {
+      emit_push_xmm(parse, 0);
+    } else {
+      emit_push(parse, "rax");
+    }
+    emit_expression(parse, var->operand);
+    emitf("mov %%rax, %%rcx");
+    if (type_is_float(type)) {
+      emit_pop_xmm(parse, 0);
+    } else {
+      emit_pop(parse, "rax");
+    }
+    switch (type->kind) {
+    case TYPE_KIND_FLOAT:
+      emitf("movss %%xmm0, %d(%%rcx)", offset);
       break;
-    case 2:
-      emitf("mov %%ax, %d(%%rbp)", -var->voffset + base + type->bytes * at);
-      break;
-    case 4:
-      emitf("mov %%eax, %d(%%rbp)", -var->voffset + base + type->bytes * at);
-      break;
-    case 8:
-      emitf("mov %%rax, %d(%%rbp)", -var->voffset + base + type->bytes * at);
+    case TYPE_KIND_DOUBLE:
+      emitf("movsd %%xmm0, %d(%%rcx)", offset);
       break;
     default:
-      errorf("invalid variable type");
+      switch (type->bytes) {
+      case 1:
+        emitf("mov %%al, %d(%%rcx)", offset);
+        break;
+      case 2:
+        emitf("mov %%ax, %d(%%rcx)", offset);
+        break;
+      case 4:
+        emitf("mov %%eax, %d(%%rcx)", offset);
+        break;
+      case 8:
+        emitf("mov %%rax, %d(%%rcx)", offset);
+        break;
+      default:
+        errorf("invalid variable type");
+      }
     }
+    return;
+  } else if (var->kind == NODE_KIND_BINARY_OP && var->op == '.') {
+    emit_store_struct(parse, var->left, type, offset + var->right->voffset);
+    return;
   }
+  assert(var->kind == NODE_KIND_VARIABLE);
+  emit_save_to(parse, var, type, offset);
 }
 
 static void emit_store(parse_t *parse, node_t *var, type_t *type) {
@@ -287,6 +343,9 @@ static void emit_store(parse_t *parse, node_t *var, type_t *type) {
         errorf("invalid variable type");
       }
     }
+    return;
+  } else if (var->kind == NODE_KIND_BINARY_OP && var->op == '.') {
+    emit_store_struct(parse, var->left, var->type, var->right->voffset);
     return;
   }
   assert(var->kind == NODE_KIND_VARIABLE);
@@ -527,6 +586,33 @@ static void emit_binary_op_expression(parse_t *parse, node_t *node) {
     emit_expression(parse, node->right);
     emit_store(parse, node->left, node->right->type);
     return;
+  } else if (op == '.') {
+    emit_expression(parse, node->left);
+    if (node->type->kind == TYPE_KIND_ARRAY || node->type->kind == TYPE_KIND_STRUCT) {
+      emitf("lea %d(%%rax), %%rax", node->right->voffset);
+    } else if (node->type->kind == TYPE_KIND_FLOAT) {
+      emitf("movss %d(%%rax), %%xmm0", node->right->voffset);
+    } else if (node->type->kind == TYPE_KIND_DOUBLE) {
+      emitf("movsd %d(%%rax), %%xmm0", node->right->voffset);
+    } else {
+      switch (node->type->bytes) {
+      case 1:
+        emitf("movzbq %d(%%rax), %%rax", node->right->voffset);
+        break;
+      case 2:
+        emitf("movzwq %d(%%rax), %%rax", node->right->voffset);
+        break;
+      case 4:
+        emitf("mov %d(%%rax), %%eax", node->right->voffset);
+        break;
+      case 8:
+        emitf("mov %d(%%rax), %%rax", node->right->voffset);
+        break;
+      default:
+        errorf("invalid variable type");
+      }
+    }
+    return;
   }
   if (op & OP_ASSIGN_MASK) {
     node_t *tmp = node_new_binary_op(parse, node->type, op & ~OP_ASSIGN_MASK, node->left, node->right);
@@ -627,16 +713,20 @@ static void emit_unary_op_expression(parse_t *parse, node_t *node) {
     }
     break;
   case '&':
-    assert(node->operand->kind == NODE_KIND_VARIABLE);
-    if (node->operand->global) {
-      emitf("lea %s(%%rip), %%rax", node->operand->vname);
-    } else {
-      emitf("lea %d(%%rbp), %%rax", -node->operand->voffset);
+    if (node->operand->kind == NODE_KIND_VARIABLE) {
+      if (node->operand->global) {
+        emitf("lea %s(%%rip), %%rax", node->operand->vname);
+      } else {
+        emitf("lea %d(%%rbp), %%rax", -node->operand->voffset);
+      }
+    } else if (node->operand->kind == NODE_KIND_BINARY_OP && node->operand->op == '.') {
+      emit_expression(parse, node->operand->left);
+      emitf("lea %d(%%rax), %%rax", node->operand->right->voffset);
     }
     break;
   case '*':
     emit_expression(parse, node->operand);
-    if (node->type->kind == TYPE_KIND_ARRAY) {
+    if (node->type->kind == TYPE_KIND_ARRAY || node->type->kind == TYPE_KIND_STRUCT) {
       return;
     }
     if (node->type->kind == TYPE_KIND_FLOAT) {
@@ -934,7 +1024,7 @@ static int placement_variables(node_t *node, int offset) {
       continue;
     }
     offset += n->type->total_size;
-    align(&offset, 8);
+    align(&offset, n->type->align);
     n->voffset = offset;
   }
   int max_offset = offset;
@@ -960,7 +1050,7 @@ static void emit_function(parse_t *parse, node_t *node) {
     if (type_is_float(n->type)) {
       if (xargs < 8) {
         offset += n->type->bytes;
-        align(&offset, 8);
+        align(&offset, n->type->align);
         n->voffset = offset;
         if (n->type->kind == TYPE_KIND_FLOAT) {
           emitf("movss %%xmm%d, %d(%%rbp)", xargs++, -n->voffset);
@@ -974,7 +1064,7 @@ static void emit_function(parse_t *parse, node_t *node) {
     } else {
       if (iargs < 6) {
         offset += n->type->bytes;
-        align(&offset, 8);
+        align(&offset, n->type->align);
         n->voffset = offset;
         switch (n->type->bytes) {
         case 1:
