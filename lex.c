@@ -329,6 +329,9 @@ token_t *lex_get_token(lex_t *lex) {
     if (strcmp("struct", token->identifier) == 0) {
       return new_keyword(lex, TOKEN_KEYWORD_STRUCT);
     }
+    if (strcmp("union", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_UNION);
+    }
     return token;
   }
   switch (c) {

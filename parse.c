@@ -9,7 +9,7 @@
 static node_t *external_declaration(parse_t *parse);
 static node_t *function_definition(parse_t *parse, node_t *var);
 static type_t *declaration_specifier(parse_t *parse);
-static type_t *struct_or_union_specifier(parse_t *parse);
+static type_t *struct_or_union_specifier(parse_t *parse, bool is_struct);
 static void struct_declaration(parse_t *parse, type_t *type, type_t *field_type);
 static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type);
 static type_t *declarator_array(parse_t *parse, type_t *type);
@@ -314,11 +314,11 @@ static type_t *declaration_specifier(parse_t *parse) {
       } else if (token->keyword == TOKEN_KEYWORD_UNSIGNED) {
         sign = 0;
         continue;
-      } else if (token->keyword == TOKEN_KEYWORD_STRUCT) {
+      } else if (token->keyword == TOKEN_KEYWORD_STRUCT || token->keyword == TOKEN_KEYWORD_UNION) {
         if (type != NULL) {
           errorf("cannot combine with previous '%s' declaration specifier", type->name);
         }
-        type = struct_or_union_specifier(parse);
+        type = struct_or_union_specifier(parse, token->keyword == TOKEN_KEYWORD_STRUCT);
         break;
       }
     } else if (token->kind == TOKEN_KIND_IDENTIFIER) {
@@ -349,10 +349,9 @@ static type_t *declaration_specifier(parse_t *parse) {
   return select_type(parse, type, kind, sign, size);
 }
 
-static type_t *make_empty_struct_type(parse_t *parse, token_t *tag) {
-  type_t *type = type_new_struct(NULL);
-  string_t *name = string_new_with("struct ");
-
+static type_t *make_empty_struct_type(parse_t *parse, token_t *tag, bool is_struct) {
+  type_t *type = type_new_struct(NULL, is_struct);
+  string_t *name = string_new_with(is_struct ? "struct " : "union ");
   if (tag != NULL) {
     string_append(name, tag->identifier);
   } else {
@@ -369,7 +368,7 @@ static type_t *make_empty_struct_type(parse_t *parse, token_t *tag) {
   return type;
 }
 
-static type_t *struct_or_union_specifier(parse_t *parse) {
+static type_t *struct_or_union_specifier(parse_t *parse, bool is_struct) {
   token_t *tag = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
   type_t *type = NULL;
 
@@ -378,12 +377,14 @@ static type_t *struct_or_union_specifier(parse_t *parse) {
   }
   if (!lex_next_keyword_is(parse->lex, '{')) {
     if (type == NULL) {
-      type = make_empty_struct_type(parse, tag);
+      type = make_empty_struct_type(parse, tag, is_struct);
+    } else if (type->is_struct != is_struct) {
+      errorf("use of '%s' with tag type that does not match previous declaration", tag->identifier);
     }
     return type;
   }
   if (type == NULL || type_get_by_tag(parse, tag->identifier, true) == NULL) {
-    type = make_empty_struct_type(parse, tag);
+    type = make_empty_struct_type(parse, tag, is_struct);
   } else if (type->fields->size > 0) {
     errorf("redefinition of '%s'", tag->identifier);
   }
@@ -418,9 +419,13 @@ static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type) 
         errorf("duplicate member: %s", field->vname);
       }
       node_t *node = node_new_variable(parse, field->type, field->vname, false);
-      align(&type->total_size, field->type->align);
-      node->voffset = type->total_size;
-      type->total_size += field->type->total_size;
+      if (type->is_struct) {
+        align(&type->total_size, field->type->align);
+        node->voffset = type->total_size;
+        type->total_size += field->type->total_size;
+      } else if (type->total_size < field->type->total_size) {
+        type->total_size = field->type->total_size;
+      }
       map_add(type->fields, field->vname, node);
     }
     if (type->align < field_type->align) {
@@ -442,9 +447,13 @@ static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type) 
     errorf("duplicate member: %s", name);
   }
   node_t *node = node_new_variable(parse, field_type, name, false);
-  align(&type->total_size, field_type->align);
-  node->voffset = type->total_size;
-  type->total_size += field_type->total_size;
+  if (type->is_struct) {
+    align(&type->total_size, field_type->align);
+    node->voffset = type->total_size;
+    type->total_size += field_type->total_size;
+  } else if (type->total_size < field_type->total_size) {
+    type->total_size = field_type->total_size;
+  }
   map_add(type->fields, name, node);
   if (type->align < field_type->align) {
     type->align = field_type->align;
