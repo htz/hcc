@@ -240,6 +240,11 @@ test 81 'struct tag {int a;int b;} x;int mymain(){struct tag *p=&x;x.b=81;(*p).b
 test 82 'struct tag {int a;int b;} x;int mymain(){struct tag *p=&x;(*p).b=82;x.b;}'
 test 66 'int mymain(){struct {int a;struct{int b;struct{int c;};};} x;x.a=11;x.b=22;x.c=33;return x.a+x.b+x.c;}'
 
+test 90 'int mymain(){union {int a;int b;} x;x.a=90;return x.b;}'
+test 256 'int mymain(){union {char a[4];int b;} x;x.b=0;x.a[1]=1;return x.b;}';
+test 256 'int mymain(){union {char a[4];int b;} x;x.a[0]=x.a[1]=x.a[2]=x.a[3]=0;x.a[1]=1;return x.b;}';
+test 256 'union {char a[4];int b;} x;int mymain(){x.b=0;x.a[1]=1;return x.b;}';
+
 testfail 'int f(){0abc;}'
 testfail 'int f(){0xg;}'
 testfail 'int f(){08;}'

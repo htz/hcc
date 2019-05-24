@@ -67,6 +67,7 @@ type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int s
     t->total_size = t->parent->total_size * size;
   }
   t->fields = NULL;
+  t->is_struct = false;
   return t;
 }
 
@@ -74,10 +75,11 @@ type_t *type_new(char *name, int kind, int sign, type_t *parent) {
   return type_new_with_size(name, kind, sign, parent, 0);
 }
 
-type_t *type_new_struct(char *name) {
+type_t *type_new_struct(char *name, bool is_struct) {
   type_t *t = type_new(name, TYPE_KIND_STRUCT, false, NULL);
   t->total_size = 0;
   t->fields = map_new();
+  t->is_struct = is_struct;
   return t;
 }
 

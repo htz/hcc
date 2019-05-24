@@ -76,6 +76,7 @@ struct type {
   int align;
   int total_size;
   map_t *fields;
+  bool is_struct;
 };
 
 enum {
@@ -107,6 +108,7 @@ enum {
   TOKEN_KEYWORD_SIGNED,
   TOKEN_KEYWORD_UNSIGNED,
   TOKEN_KEYWORD_STRUCT,
+  TOKEN_KEYWORD_UNION,
   OP_SAL,    // <<
   OP_SAR,    // >>
   OP_EQ,     // ==
@@ -328,7 +330,7 @@ void align(int *np, int a);
 // type.c
 type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int size);
 type_t *type_new(char *name, int kind, int sign, type_t *ptr);
-type_t *type_new_struct(char *name);
+type_t *type_new_struct(char *name, bool is_struct);
 void type_free(type_t *t);
 type_t *type_find(parse_t *parse, char *name);
 void type_add(parse_t *parse, char *name, type_t *type);
