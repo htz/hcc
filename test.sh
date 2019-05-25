@@ -245,6 +245,11 @@ test 256 'int mymain(){union {char a[4];int b;} x;x.b=0;x.a[1]=1;return x.b;}';
 test 256 'int mymain(){union {char a[4];int b;} x;x.a[0]=x.a[1]=x.a[2]=x.a[3]=0;x.a[1]=1;return x.b;}';
 test 256 'union {char a[4];int b;} x;int mymain(){x.b=0;x.a[1]=1;return x.b;}';
 
+test 2100 'enum {a,b,c};int mymain(){printf("%d%d%d",c,b,a);return 0;}'
+test 204 'int mymain(){enum {a=1,b,c=100,d};return a+b+c+d;}'
+test 123 'int mymain(){enum {a=123}x=a;return a;}'
+test 988 'enum E{a=987};int mymain(){enum E x=a;return a+1;}'
+
 testfail 'int f(){0abc;}'
 testfail 'int f(){0xg;}'
 testfail 'int f(){08;}'

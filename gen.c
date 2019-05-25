@@ -1020,7 +1020,7 @@ static void emit_expression(parse_t *parse, node_t *node) {
 static int placement_variables(node_t *node, int offset) {
   for (map_entry_t *e = node->vars->top; e != NULL; e = e->next) {
     node_t *n = (node_t *)e->val;
-    if (n->voffset != 0) {
+    if (n->kind != NODE_KIND_VARIABLE || n->voffset != 0) {
       continue;
     }
     offset += n->type->total_size;

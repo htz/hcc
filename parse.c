@@ -16,6 +16,7 @@ static type_t *declarator_array(parse_t *parse, type_t *type);
 static node_t *variable_declarator(parse_t *parse, type_t *type);
 static type_t *declarator(parse_t *parse, type_t *type, char **namep);
 static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep);
+static node_t *constant_expression(parse_t *parse);
 static node_t *conditional_expression(parse_t *parse);
 static node_t *logical_or_expression(parse_t *parse);
 static node_t *logical_and_expression(parse_t *parse);
@@ -36,6 +37,9 @@ static node_t *expression(parse_t *parse);
 static node_t *assignment_expression(parse_t *parse);
 static type_t *type_name(parse_t *parse);
 static type_t *abstract_declarator(parse_t *parse, type_t *type);
+static type_t *enum_specifier(parse_t *parse);
+static void enumerator_list(parse_t *parse, type_t *type);
+static int enumerator(parse_t *parse, type_t *type, int n);
 static node_t *declaration(parse_t *parse, type_t *type);
 static node_t *init_declarator(parse_t *parse, node_t *var);
 static node_t *initializer(parse_t *parse, type_t *type);
@@ -249,6 +253,9 @@ static node_t *function_definition(parse_t *parse, node_t *var) {
 
 static type_t *select_type(parse_t *parse, type_t *type, int kind, int sign, int size) {
   if (kind == -1 && sign == -1 && size == -1) {
+    if (type != NULL && type->kind == TYPE_KIND_ENUM) {
+      return parse->type_int;
+    }
     return type;
   }
   if (type != NULL) {
@@ -319,6 +326,12 @@ static type_t *declaration_specifier(parse_t *parse) {
           errorf("cannot combine with previous '%s' declaration specifier", type->name);
         }
         type = struct_or_union_specifier(parse, token->keyword == TOKEN_KEYWORD_STRUCT);
+        break;
+      } else if (token->keyword == TOKEN_KEYWORD_ENUM) {
+        if (type != NULL) {
+          errorf("cannot combine with previous '%s' declaration specifier", type->name);
+        }
+        type = enum_specifier(parse);
         break;
       }
     } else if (token->kind == TOKEN_KIND_IDENTIFIER) {
@@ -462,10 +475,7 @@ static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type) 
 
 static type_t *declarator_array(parse_t *parse, type_t *type) {
   if (lex_next_keyword_is(parse->lex, '[')) {
-    node_t *size = expression(parse);
-    if (size->kind != NODE_KIND_LITERAL || size->type->kind != TYPE_KIND_INT) {
-      errorf("integer expected, but got %d", size->kind);
-    }
+    node_t *size = constant_expression(parse);
     lex_expect_keyword_is(parse->lex, ']');
     type_t *parent_type = declarator_array(parse, type);
     type = type_make_array(parse, parent_type, size->ival);
@@ -504,10 +514,7 @@ static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep) {
   if (lex_next_keyword_is(parse->lex, '[')) {
     node_t *size = NULL;
     if (!lex_next_keyword_is(parse->lex, ']')) {
-      size = expression(parse);
-      if (size->kind != NODE_KIND_LITERAL || size->type->kind != TYPE_KIND_INT) {
-        errorf("integer expected, but got %d", size->kind);
-      }
+      size = constant_expression(parse);
       lex_expect_keyword_is(parse->lex, ']');
     }
     type_t *parent_type = declarator_array(parse, type);
@@ -518,6 +525,14 @@ static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep) {
     }
   }
   return type;
+}
+
+static node_t *constant_expression(parse_t *parse) {
+  node_t *node = conditional_expression(parse);
+  if (node->kind != NODE_KIND_LITERAL || node->type->kind != TYPE_KIND_INT) {
+    errorf("integer expected, but got %d", node->kind);
+  }
+  return node;
 }
 
 static node_t *conditional_expression(parse_t *parse) {
@@ -885,7 +900,13 @@ static node_t *primary_expression(parse_t *parse) {
     }
     errorf("unknown keyword");
   case TOKEN_KIND_IDENTIFIER:
-    return node_new_identifier(parse, token->identifier);
+    {
+      node_t *var = find_variable(parse, parse->current_scope, token->identifier);
+      if (var != NULL && var->kind == NODE_KIND_LITERAL && type_is_int(var->type)) {
+        return node_new_int(parse, var->type, var->ival);
+      }
+      return node_new_identifier(parse, token->identifier);
+    }
   case TOKEN_KIND_CHAR:
   case TOKEN_KIND_INT:
     return node_new_int(parse, parse->type_int, token->ival);
@@ -996,6 +1017,82 @@ static type_t *type_name(parse_t *parse) {
 
 static type_t *abstract_declarator(parse_t *parse, type_t *type) {
   return declarator(parse, type, NULL);
+}
+
+static type_t *make_empty_enum_type(parse_t *parse, token_t *tag) {
+  type_t *type = type_new_enum(NULL);
+  string_t *name = string_new_with("enum ");
+  if (tag != NULL) {
+    string_append(name, tag->identifier);
+  } else {
+    string_appendf(name, "$%p", type);
+  }
+  type->name = strdup(name->buf);
+  string_free(name);
+
+  type_add(parse, type->name, type);
+  if (tag != NULL) {
+    type_add_by_tag(parse, tag->identifier, type);
+  }
+
+  return type;
+}
+
+static type_t *enum_specifier(parse_t *parse) {
+  token_t *tag = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+  type_t *type = NULL;
+
+  if (tag != NULL) {
+    type = type_get_by_tag(parse, tag->identifier, false);
+  }
+  if (!lex_next_keyword_is(parse->lex, '{')) {
+    if (type == NULL) {
+      type = make_empty_enum_type(parse, tag);
+    }
+    return type;
+  }
+  if (type == NULL || type_get_by_tag(parse, tag->identifier, true) == NULL) {
+    type = make_empty_enum_type(parse, tag);
+  } else if (type->fields->size > 0) { // ここ！！！！！！！！！！！
+    errorf("redefinition of '%s'", tag->identifier);
+  }
+  enumerator_list(parse, type);
+
+  return type;
+}
+
+static void enumerator_list(parse_t *parse, type_t *type) {
+  for (int n = 0; !lex_next_keyword_is(parse->lex, '}'); n++) {
+    n = enumerator(parse, type, n);
+    if (!lex_next_keyword_is(parse->lex, ',')) {
+      lex_expect_keyword_is(parse->lex, '}');
+      break;
+    }
+  }
+}
+
+static int enumerator(parse_t *parse, type_t *type, int n) {
+  token_t *name = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+  node_t *val;
+  if (lex_next_keyword_is(parse->lex, '=')) {
+    val = constant_expression(parse);
+  } else {
+    val = node_new_int(parse, parse->type_int, n);
+  }
+
+  map_t *vars;
+  if (parse->current_scope) {
+    vars = parse->current_scope->vars;
+  } else {
+    vars = parse->vars;
+  }
+  map_entry_t *e = map_find(vars, name->identifier);
+  if (e != NULL) {
+    errorf("previous definition is here");
+  }
+  map_add(vars, name->identifier, val);
+
+  return val->ival;
 }
 
 static node_t *declaration(parse_t *parse, type_t *type) {
