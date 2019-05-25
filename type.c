@@ -83,6 +83,12 @@ type_t *type_new_struct(char *name, bool is_struct) {
   return t;
 }
 
+type_t *type_new_enum(char *name) {
+  type_t *t = type_new(name, TYPE_KIND_ENUM, false, NULL);
+  t->total_size = 0;
+  return t;
+}
+
 void type_free(type_t *t) {
   if (t->name != NULL) {
     free(t->name);

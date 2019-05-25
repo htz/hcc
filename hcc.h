@@ -63,6 +63,7 @@ enum {
   TYPE_KIND_PTR,
   TYPE_KIND_ARRAY,
   TYPE_KIND_STRUCT,
+  TYPE_KIND_ENUM,
 };
 
 typedef struct type type_t;
@@ -109,6 +110,7 @@ enum {
   TOKEN_KEYWORD_UNSIGNED,
   TOKEN_KEYWORD_STRUCT,
   TOKEN_KEYWORD_UNION,
+  TOKEN_KEYWORD_ENUM,
   OP_SAL,    // <<
   OP_SAR,    // >>
   OP_EQ,     // ==
@@ -331,6 +333,7 @@ void align(int *np, int a);
 type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int size);
 type_t *type_new(char *name, int kind, int sign, type_t *ptr);
 type_t *type_new_struct(char *name, bool is_struct);
+type_t *type_new_enum(char *name);
 void type_free(type_t *t);
 type_t *type_find(parse_t *parse, char *name);
 void type_add(parse_t *parse, char *name, type_t *type);
