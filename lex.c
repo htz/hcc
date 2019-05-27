@@ -268,6 +268,7 @@ token_t *lex_get_token(lex_t *lex) {
     return (token_t *)vector_pop(lex->tbuf);
   }
   mark_pos(lex);
+retry:
   do {
     c = get_char(lex);
   } while (c != '\0' && isspace(c));
@@ -365,6 +366,34 @@ token_t *lex_get_token(lex_t *lex) {
   case '/':
     if (next_char(lex, '=')) {
       return new_keyword(lex, '/' | OP_ASSIGN_MASK);
+    }
+    if (next_char(lex, '/')) {
+      for (;;) {
+        c = get_char(lex);
+        if (c == '\0') {
+          return token_new(lex, TOKEN_KIND_EOF);
+        }
+        if (c == '\n') {
+          goto retry;
+        }
+      }
+    }
+    if (next_char(lex, '*')) {
+      for (;;) {
+        c = get_char(lex);
+        if (c == '\0') {
+          return token_new(lex, TOKEN_KIND_EOF);
+        }
+        if (c == '*') {
+          c = get_char(lex);
+          if (c == '\0') {
+            return token_new(lex, TOKEN_KIND_EOF);
+          }
+          if (c == '/') {
+            goto retry;
+          }
+        }
+      }
     }
     return new_keyword(lex, '/');
   case '%':
