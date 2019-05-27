@@ -5,6 +5,7 @@ PROG := hcc
 SRCS := error.c gen.c lex.c main.c map.c node.c parse.c string.c token.c type.c util.c vector.c
 OBJS := ${SRCS:%.c=%.o}
 DEPS := ${SRCS:%.c=%.d}
+TESTS := $(patsubst %.c,%.out,$(filter-out test/testmain.c, $(wildcard test/*.c)))
 
 .PHONY: all
 all: ${PROG}
@@ -17,12 +18,21 @@ ${PROG}: ${OBJS}
 	${CC} -c $< -o $@ ${CFLAGS}
 
 .PHONY: test
-test: ${PROG}
+test: ${PROG} ${TESTS}
 	./test.sh
+	@for test in $(TESTS); do \
+		./$$test;               \
+	done
+
+test/%.s: test/%.c ${PROG}
+	./${PROG} < $< > $@
+
+test/%.out: test/%.s test/testmain.c ${PROG}
+	@$(CC) $(CFLAGS) -no-pie -o $@ $< test/testmain.c
 
 .PHONY: clean
 clean:
-	${RM} ${PROG} ${OBJS} ${DEPS}
+	${RM} ${PROG} ${OBJS} ${DEPS} ${TESTS}
 
 ifeq ($(findstring clean,${MAKECMDGOALS}),)
   -include ${DEPS}
