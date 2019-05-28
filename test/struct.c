@@ -216,6 +216,46 @@ void test_scope() {
   }
 }
 
+void test_init() {
+  struct {
+    char c;
+    short s;
+    int i;
+    long l;
+  } a1 = {
+    0xa9,
+    0xa987,
+    0xa9876543,
+    0xfedcba9876543210LL,
+  };
+  expect(1, a1.c == 0xa9);
+  expect(1, a1.s == 0xa987);
+  expect(1, a1.i == 0xa9876543);
+  expect(1, a1.l == 0xfedcba9876543210LL);
+
+  struct {
+    int a[4];
+    struct {
+      char x;
+      long y;
+    } b;
+    struct {
+      int z;
+    };
+  } a2 = {
+    {1, 2, 3, 4},
+    {5, 6},
+    7,
+  };
+  expect(1, a2.a[0]);
+  expect(2, a2.a[1]);
+  expect(3, a2.a[2]);
+  expect(4, a2.a[3]);
+  expect(5, a2.b.x);
+  expect(6, a2.b.y);
+  expect(7, a2.z);
+}
+
 void testmain() {
   test_basic_struct();
   test_basic_union();
@@ -225,4 +265,5 @@ void testmain() {
   test_global_union();
   test_mix();
   test_scope();
+  test_init();
 }

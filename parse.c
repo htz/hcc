@@ -1138,16 +1138,29 @@ static node_t *initializer(parse_t *parse, type_t *type) {
   node_t *init;
   if (lex_next_keyword_is(parse->lex, '{')) {
     vector_t *nodes = vector_new();
-    if (type->parent == NULL) {
-      errorf("pointer or array type expected, but got %s", type->name);
-    }
-    while (!lex_next_keyword_is(parse->lex, '}')) {
-      node_t *node = initializer(parse, type->parent);
-      vector_push(nodes, node);
-      if (!lex_next_keyword_is(parse->lex, ',')) {
-        lex_expect_keyword_is(parse->lex, '}');
-        break;
+    if (type->kind == TYPE_KIND_ARRAY) {
+      while (!lex_next_keyword_is(parse->lex, '}')) {
+        node_t *node = initializer(parse, type->parent);
+        vector_push(nodes, node);
+        if (!lex_next_keyword_is(parse->lex, ',')) {
+          lex_expect_keyword_is(parse->lex, '}');
+          break;
+        }
       }
+    } else if (type->kind == TYPE_KIND_STRUCT) {
+      map_entry_t *e = type->fields->top;
+      while (!lex_next_keyword_is(parse->lex, '}')) {
+        node_t *field = (node_t *)e->val;
+        node_t *node = initializer(parse, field->type);
+        vector_push(nodes, node);
+        if (!lex_next_keyword_is(parse->lex, ',')) {
+          lex_expect_keyword_is(parse->lex, '}');
+          break;
+        }
+        e = e->next;
+      }
+    } else {
+      errorf("pointer or array type expected, but got %s", type->name);
     }
     init = node_new_init_list(parse, type, nodes);
   } else {

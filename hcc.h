@@ -198,7 +198,7 @@ struct node {
       string_t *sval;
       int sid;
     };
-    // Initialize array
+    // Initialize array/struct/union
     vector_t *init_list;
     // Variable
     struct {
