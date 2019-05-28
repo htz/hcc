@@ -26,6 +26,8 @@ static void emit_store(parse_t *parse, node_t *var, type_t *type);
 static void emit_cast(parse_t *parse, type_t *to, type_t *from);
 static void emit_binary_op_expression(parse_t *parse, node_t *node);
 static void emit_unary_op_expression(parse_t *parse, node_t *node);
+static void emit_declaration_init_array(parse_t *parse, node_t *var, type_t *type, vector_t *vals, int offset);
+static void emit_declaration_init_struct(parse_t *parse, node_t *var, type_t *type, vector_t *vals, int offset);
 static void emit_declaration_init(parse_t *parse, node_t *var, node_t *init);
 static void emit_call(parse_t *parse, node_t *node);
 static void emit_if(parse_t *parse, node_t *node);
@@ -763,12 +765,36 @@ static void emit_declaration_init_array(parse_t *parse, node_t *var, type_t *typ
   assert(type->parent != NULL);
   for (int i = 0; i < vals->size; i++) {
     node_t *val = (node_t *)vals->data[i];
-    if (val->kind != NODE_KIND_INIT_LIST) {
+    if (val->kind == NODE_KIND_INIT_LIST) {
+      if (type->parent->kind == TYPE_KIND_ARRAY) {
+        emit_declaration_init_array(parse, var, type->parent, val->init_list, offset);
+      } else {
+        emit_declaration_init_struct(parse, var, type->parent, val->init_list, offset);
+      }
+    } else {
       emit_expression(parse, val);
       emit_cast(parse, type->parent, val->type);
-      emit_save(parse, var, type->parent, offset, i);
+      emit_save_to(parse, var, type->parent, offset);
+    }
+    offset += type->parent->total_size;
+  }
+}
+
+static void emit_declaration_init_struct(parse_t *parse, node_t *var, type_t *type, vector_t *vals, int offset) {
+  map_entry_t *e = type->fields->top;
+  for (int i = 0; i < vals->size && e != NULL; i++, e = e->next) {
+    node_t *val = (node_t *)vals->data[i];
+    node_t *field = (node_t *)e->val;
+    if (val->kind == NODE_KIND_INIT_LIST) {
+      if (field->type->kind == TYPE_KIND_ARRAY) {
+        emit_declaration_init_array(parse, var, field->type, val->init_list, offset + field->voffset);
+      } else {
+        emit_declaration_init_struct(parse, var, field->type, val->init_list, offset + field->voffset);
+      }
     } else {
-      emit_declaration_init_array(parse, var, type->parent, val->init_list, offset + type->parent->total_size * i);
+      emit_expression(parse, val);
+      emit_cast(parse, field->type, val->type);
+      emit_save_to(parse, var, field->type, offset + field->voffset);
     }
   }
 }
@@ -783,11 +809,15 @@ static void emit_declaration_init(parse_t *parse, node_t *var, node_t *init) {
     }
     emitf("mov $%d, %%al", '\0');
     emit_save(parse, var, parse->type_char, 0, i);
-  } else if (init->kind != NODE_KIND_INIT_LIST) {
+  } else if (init->kind == NODE_KIND_INIT_LIST) {
+    if (var->type->kind == TYPE_KIND_ARRAY) {
+      emit_declaration_init_array(parse, var, var->type, init->init_list, 0);
+    } else {
+      emit_declaration_init_struct(parse, var, var->type, init->init_list, 0);
+    }
+  } else {
     emit_expression(parse, init);
     emit_store(parse, var, init->type);
-  } else {
-    emit_declaration_init_array(parse, var, var->type, init->init_list, 0);
   }
 }
 
