@@ -125,6 +125,7 @@ enum {
   OP_OROR,   // ||
   OP_ARROW,  // ->
   OP_CAST,
+  OP_SIZEOF, // sizeof
   OP_ASSIGN_MASK = 0x1000,
 };
 

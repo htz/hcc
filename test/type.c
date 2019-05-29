@@ -35,8 +35,18 @@ void test_unsigned() {
   unsigned long long int h;
 }
 
+void test_pointer() {
+  int *a;
+  expect(8, sizeof(a));
+  int *b[5];
+  expect(40, sizeof(b));
+  // int (*c)[5];
+  // expect(8, sizeof(c));
+}
+
 void testmain() {
   test_type();
   test_signed();
   test_unsigned();
+  test_pointer();
 }

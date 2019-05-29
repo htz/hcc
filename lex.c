@@ -336,6 +336,9 @@ retry:
     if (strcmp("enum", token->identifier) == 0) {
       return new_keyword(lex, TOKEN_KEYWORD_ENUM);
     }
+    if (strcmp("sizeof", token->identifier) == 0) {
+      return new_keyword(lex, OP_SIZEOF);
+    }
     return token;
   }
   switch (c) {
