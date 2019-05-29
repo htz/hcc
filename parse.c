@@ -803,6 +803,22 @@ static node_t *unary_expression(parse_t *parse) {
     } else {
       errorf("cannot take the address of an rvalue of type '%s'", type->name);
     }
+  } else if (lex_next_keyword_is(parse->lex, OP_SIZEOF)) {
+    type_t *type = NULL;
+    token_t *token = lex_next_keyword_is(parse->lex, '(');
+    if (token != NULL) {
+      type = type_name(parse);
+      if (type == NULL) {
+        lex_unget_token(parse->lex, token);
+      } else {
+        lex_expect_keyword_is(parse->lex, ')');
+      }
+    }
+    if (type == NULL) {
+      node_t *node = unary_expression(parse);
+      type = node->type;
+    }
+    return node_new_int(parse, parse->type_uint, type->total_size);
   }
   return postfix_expression(parse);
 }
