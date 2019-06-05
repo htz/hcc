@@ -199,6 +199,18 @@ static void emit_save_global_to(parse_t *parse, type_t *type, const char *name, 
   case TYPE_KIND_LDOUBLE:
     emitf("movsd %%xmm0, %s%+d(%%rip)", name, offset);
     break;
+  case TYPE_KIND_STRUCT:
+    emit_push(parse, "rsi");
+    emit_push(parse, "rdi");
+    emit_push(parse, "rcx");
+    emitf("mov %%rax, %%rsi");
+    emitf("lea %s%+d(%%rip), %%rdi", name, offset);
+    emitf("mov $%d, %%rcx", type->total_size);
+    emitf("rep movsb");
+    emit_pop(parse, "rcx");
+    emit_pop(parse, "rdi");
+    emit_pop(parse, "rsi");
+    break;
   default:
     switch (type->bytes) {
     case 1:
@@ -231,6 +243,18 @@ static void emit_save_to(parse_t *parse, node_t *var, type_t *type, int offset) 
   case TYPE_KIND_DOUBLE:
   case TYPE_KIND_LDOUBLE:
     emitf("movsd %%xmm0, %d(%%rbp)", -var->voffset + offset);
+    break;
+  case TYPE_KIND_STRUCT:
+    emit_push(parse, "rsi");
+    emit_push(parse, "rdi");
+    emit_push(parse, "rcx");
+    emitf("mov %%rax, %%rsi");
+    emitf("lea %d(%%rbp), %%rdi", -var->voffset + offset);
+    emitf("mov $%d, %%rcx", type->total_size);
+    emitf("rep movsb");
+    emit_pop(parse, "rcx");
+    emit_pop(parse, "rdi");
+    emit_pop(parse, "rsi");
     break;
   default:
     switch (type->bytes) {
@@ -828,7 +852,9 @@ static void emit_call(parse_t *parse, node_t *node) {
   vector_t *rargs = vector_new();
   for (i = 0; i < node->args->size; i++) {
     node_t *n = (node_t *)node->args->data[i];
-    if (type_is_float(n->type)) {
+    if (type_is_struct(n->type)) {
+      vector_push(rargs, n);
+    } else if (type_is_float(n->type)) {
       vector_push(xargs->size < 8 ? xargs : rargs, n);
     } else {
       vector_push(iargs->size < 6 ? iargs : rargs, n);
@@ -849,7 +875,15 @@ static void emit_call(parse_t *parse, node_t *node) {
   for (i = rargs->size - 1; i >= 0; i--) {
     node_t *n = (node_t *)rargs->data[i];
     emit_expression(parse, n);
-    if (type_is_float(n->type)) {
+    if (type_is_struct(n->type)) {
+      int size = n->type->total_size;
+      align(&size, 8);
+      emitf("mov %%rax, %%rsi");
+      emit_add_rsp(parse, -size);
+      emitf("mov %%rsp, %%rdi");
+      emitf("mov $%d, %%rcx", size);
+      emitf("rep movsb");
+    } else if (type_is_float(n->type)) {
       emit_push_xmm(parse, 0);
     } else {
       emit_push(parse, "rax");
@@ -877,7 +911,17 @@ static void emit_call(parse_t *parse, node_t *node) {
   emitf("mov $%d, %%eax", xargs->size);
   emitf("call %s", node->func->identifier);
   // restore registers
-  int rsize = rargs->size * 8 + padding;
+  int rsize = padding;
+  for (int i = 0; i < rargs->size; i++) {
+    node_t *n = (node_t *)rargs->data[i];
+    if (type_is_struct(n->type)) {
+      int size = n->type->total_size;
+      align(&size, 8);
+      rsize += size;
+    } else {
+      rsize += 8;
+    }
+  }
   emit_add_rsp(parse, rsize);
   for (i = xargs->size - 1; i > 0; i--) {
     emit_pop_xmm(parse, i);
@@ -1091,6 +1135,11 @@ static void emit_function(parse_t *parse, node_t *node) {
         n->voffset = -spoffset;
         spoffset += 8;
       }
+    } else if (type_is_struct(n->type)) {
+      int size = n->type->total_size;
+      align(&size, 8);
+      n->voffset = -spoffset;
+      spoffset += size;
     } else {
       if (iargs < 6) {
         offset += n->type->bytes;

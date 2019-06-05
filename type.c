@@ -243,3 +243,7 @@ bool type_is_float(type_t *type) {
     type->kind == TYPE_KIND_DOUBLE ||
     type->kind == TYPE_KIND_LDOUBLE;
 }
+
+bool type_is_struct(type_t *type) {
+  return type->kind == TYPE_KIND_STRUCT;
+}
