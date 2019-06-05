@@ -256,6 +256,50 @@ void test_init() {
   expect(7, a2.z);
 }
 
+void test_call_func(struct GS a) {
+  expect(1, a.a);
+  expect(2, a.y.b);
+  expect(3, a.y.c);
+  a.a = 0;
+  a.y.b = 0;
+  a.y.c = 0;
+}
+
+void test_call() {
+  struct GS a;
+  a.a = 1;
+  a.y.b = 2;
+  a.y.c = 3;
+  test_call_func(a);
+  expect(1, a.a);
+  expect(2, a.y.b);
+  expect(3, a.y.c);
+
+  gs.a = 1;
+  gs.y.b = 2;
+  gs.y.c = 3;
+  test_call_func(gs);
+  expect(1, gs.a);
+  expect(2, gs.y.b);
+  expect(3, gs.y.c);
+}
+
+void test_assign() {
+  struct GS a, b;
+  a.a = 1;
+  a.y.b = 2;
+  a.y.c = 3;
+  b = a;
+  expect(1, b.a);
+  expect(2, b.y.b);
+  expect(3, b.y.c);
+
+  gs = a;
+  expect(1, gs.a);
+  expect(2, gs.y.b);
+  expect(3, gs.y.c);
+}
+
 void testmain() {
   test_basic_struct();
   test_basic_union();
@@ -266,4 +310,6 @@ void testmain() {
   test_mix();
   test_scope();
   test_init();
+  test_call();
+  test_assign();
 }

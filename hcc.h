@@ -347,6 +347,7 @@ bool type_is_assignable(type_t *a, type_t *b);
 const char *type_kind_names_str(int kind);
 bool type_is_int(type_t *type);
 bool type_is_float(type_t *type);
+bool type_is_struct(type_t *type);
 
 // token.c
 token_t *token_new(lex_t *lex, int kind);
