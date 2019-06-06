@@ -34,6 +34,8 @@ static void emit_if(parse_t *parse, node_t *node);
 static void emit_while(parse_t *parse, node_t *node);
 static void emit_do(parse_t *parse, node_t *node);
 static void emit_for(parse_t *parse, node_t *node);
+static void emit_switch(parse_t *parse, node_t *node);
+static void emit_case(parse_t *parse, node_t *node);
 static void emit_continue(parse_t *parse, node_t *node);
 static void emit_break(parse_t *parse, node_t *node);
 static void emit_return(parse_t *parse, node_t *node);
@@ -993,6 +995,27 @@ static void emit_for(parse_t *parse, node_t *node) {
   emitf(".L%p:", node->lbody);
 }
 
+static void emit_switch(parse_t *parse, node_t *node) {
+  emit_expression(parse, node->sexpr);
+  for (int i = 0; i < node->cases->size; i++) {
+    node_t *n = (node_t *)node->cases->data[i];
+    emitf("cmp $%ld, %%rax", n->cval->ival);
+    emitf("je .L%p", n);
+  }
+  if (node->default_case != NULL) {
+    emitf("jmp .L%p", node->default_case);
+  } else {
+    emitf("jmp .L%p", node->sbody);
+  }
+  emit_expression(parse, node->sbody);
+  emitf(".L%p:", node->sbody);
+}
+
+static void emit_case(parse_t *parse, node_t *node) {
+  emitf(".L%p:", node);
+  emit_expression(parse, node->cstmt);
+}
+
 static void emit_continue(parse_t *parse, node_t *node) {
   assert(node->cscope->parent_node != NULL);
   node_t *loop_node = node->cscope->parent_node;
@@ -1005,7 +1028,11 @@ static void emit_continue(parse_t *parse, node_t *node) {
 
 static void emit_break(parse_t *parse, node_t *node) {
   assert(node->cscope->parent_node != NULL);
-  emitf("jmp .L%p", node->cscope->parent_node->lbody);
+  if (node->cscope->parent_node->kind == NODE_KIND_SWITCH) {
+    emitf("jmp .L%p", node->cscope->parent_node->sbody);
+  } else {
+    emitf("jmp .L%p", node->cscope->parent_node->lbody);
+  }
 }
 
 static void emit_return(parse_t *parse, node_t *node) {
@@ -1084,6 +1111,12 @@ static void emit_expression(parse_t *parse, node_t *node) {
       break;
     case NODE_KIND_FOR:
       emit_for(parse, node);
+      break;
+    case NODE_KIND_SWITCH:
+      emit_switch(parse, node);
+      break;
+    case NODE_KIND_CASE:
+      emit_case(parse, node);
       break;
     default:
       errorf("unknown expression node: %d", node->kind);
