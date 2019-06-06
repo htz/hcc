@@ -157,7 +157,7 @@ node_t *node_new_continue(parse_t *parse) {
 node_t *node_new_break(parse_t *parse) {
   node_t *node = node_new(parse, NODE_KIND_BREAK);
   node_t *scope = parse->current_scope;
-  while (scope != NULL && scope->bkind != BLOCK_KIND_LOOP) {
+  while (scope != NULL && scope->bkind != BLOCK_KIND_LOOP && scope->bkind != BLOCK_KIND_SWITCH) {
     scope = scope->parent_block;
   }
   if (scope == NULL) {
@@ -203,6 +203,49 @@ node_t *node_new_for(parse_t *parse, node_t *init, node_t *cond, node_t *step, n
   if (body->kind == NODE_KIND_BLOCK) {
     body->parent_node = node;
   }
+  return node;
+}
+
+node_t *node_new_switch(parse_t *parse, node_t *expr, node_t *body) {
+  node_t *node = node_new(parse, NODE_KIND_SWITCH);
+  node->sexpr = expr;
+  node->sbody = body;
+  node->cases = vector_new();
+  node->default_case = NULL;
+  if (body->kind == NODE_KIND_BLOCK) {
+    body->parent_node = node;
+  }
+  return node;
+}
+
+node_t *node_new_case(parse_t *parse, node_t *val, node_t *stmt) {
+  node_t *node = node_new(parse, NODE_KIND_CASE);
+  node_t *scope = parse->current_scope;
+  while (scope != NULL && (scope->parent_node == NULL || scope->parent_node->kind != NODE_KIND_SWITCH)) {
+    scope = scope->parent_block;
+  }
+  if (scope == NULL || scope->parent_node->kind != NODE_KIND_SWITCH) {
+    errorf("'%s' statement not in switch statement", val == NULL ? "default" : "case");
+  }
+  node_t *swt = scope->parent_node;
+  if (val == NULL) {
+    if (swt->default_case != NULL) {
+      errorf("multiple default labels in one switch");
+    }
+    swt->default_case = node;
+  } else {
+    assert(type_is_int(val->type));
+    for (int i = 0; i < swt->cases->size; i++) {
+      node_t *n = (node_t *)swt->cases->data[i];
+      assert(type_is_int(n->cval->type));
+      if (n->cval->ival == val->ival) {
+        errorf("duplicate case value");
+      }
+    }
+    vector_push(swt->cases, node);
+  }
+  node->cval = val;
+  node->cstmt = stmt;
   return node;
 }
 
@@ -255,6 +298,11 @@ void node_free(node_t *node) {
   case NODE_KIND_RETURN:
     break;
   case NODE_KIND_FOR: case NODE_KIND_WHILE: case NODE_KIND_DO:
+    break;
+  case NODE_KIND_SWITCH:
+    vector_free(node->cases);
+    break;
+  case NODE_KIND_CASE:
     break;
   }
   free(node);

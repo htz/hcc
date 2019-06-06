@@ -111,6 +111,9 @@ enum {
   TOKEN_KEYWORD_STRUCT,
   TOKEN_KEYWORD_UNION,
   TOKEN_KEYWORD_ENUM,
+  TOKEN_KEYWORD_SWITCH,
+  TOKEN_KEYWORD_CASE,
+  TOKEN_KEYWORD_DEFAULT,
   OP_SAL,    // <<
   OP_SAR,    // >>
   OP_EQ,     // ==
@@ -174,11 +177,14 @@ enum {
   NODE_KIND_DO,
   NODE_KIND_WHILE,
   NODE_KIND_FOR,
+  NODE_KIND_SWITCH,
+  NODE_KIND_CASE,
 };
 
 enum {
   BLOCK_KIND_DEFAULT,
   BLOCK_KIND_LOOP,
+  BLOCK_KIND_SWITCH,
 };
 
 typedef struct node node_t;
@@ -265,6 +271,18 @@ struct node {
       node_t *lcond;
       node_t *lstep;
       node_t *lbody;
+    };
+    // switch
+    struct {
+      node_t *sexpr;
+      node_t *sbody;
+      vector_t *cases;
+      node_t *default_case;
+    };
+    // case/default
+    struct {
+      node_t *cval;
+      node_t *cstmt;
     };
   };
 };
@@ -387,6 +405,8 @@ node_t *node_new_return(parse_t *parse, type_t *type, node_t *retval);
 node_t *node_new_while(parse_t *parse, node_t *cond, node_t *body);
 node_t *node_new_do(parse_t *parse, node_t *cond, node_t *body);
 node_t *node_new_for(parse_t *parse, node_t *init, node_t *cond, node_t *step, node_t *body);
+node_t *node_new_switch(parse_t *parse, node_t *expr, node_t *body);
+node_t *node_new_case(parse_t *parse, node_t *val, node_t *body);
 void node_free(node_t *node);
 void node_debug(node_t *node);
 

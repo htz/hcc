@@ -339,6 +339,15 @@ retry:
     if (strcmp("sizeof", token->identifier) == 0) {
       return new_keyword(lex, OP_SIZEOF);
     }
+    if (strcmp("switch", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_SWITCH);
+    }
+    if (strcmp("case", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_CASE);
+    }
+    if (strcmp("default", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_DEFAULT);
+    }
     return token;
   }
   switch (c) {

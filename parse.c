@@ -46,8 +46,9 @@ static node_t *init_declarator(parse_t *parse, node_t *var);
 static node_t *initializer(parse_t *parse, type_t *type);
 static node_t *compound_statement(parse_t *parse);
 static node_t *statement(parse_t *parse);
+static node_t *labeled_statement(parse_t *parse, int keyword);
 static node_t *expression_statement(parse_t *parse);
-static node_t *selection_statement(parse_t *parse);
+static node_t *selection_statement(parse_t *parse, int keyword);
 static node_t *iteration_statement(parse_t *parse, int keyword);
 static node_t *jump_statement(parse_t *parse, int keyword);
 
@@ -1392,7 +1393,16 @@ static node_t *compound_statement(parse_t *parse) {
 
 static node_t *statement(parse_t *parse) {
   if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_IF)) {
-    return selection_statement(parse);
+    return selection_statement(parse, TOKEN_KEYWORD_IF);
+  }
+  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_SWITCH)) {
+    return selection_statement(parse, TOKEN_KEYWORD_SWITCH);
+  }
+  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_CASE)) {
+    return labeled_statement(parse, TOKEN_KEYWORD_CASE);
+  }
+  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_DEFAULT)) {
+    return labeled_statement(parse, TOKEN_KEYWORD_DEFAULT);
   }
   if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_CONTINUE)) {
     return jump_statement(parse, TOKEN_KEYWORD_CONTINUE);
@@ -1418,6 +1428,20 @@ static node_t *statement(parse_t *parse) {
   return expression_statement(parse);
 }
 
+static node_t *labeled_statement(parse_t *parse, int keyword) {
+  if (keyword == TOKEN_KEYWORD_CASE) {
+    node_t *exp = constant_expression(parse);
+    lex_expect_keyword_is(parse->lex, ':');
+    node_t *body = statement(parse);
+    return node_new_case(parse, exp, body);
+  } else if (keyword == TOKEN_KEYWORD_DEFAULT) {
+    lex_expect_keyword_is(parse->lex, ':');
+    node_t *body = statement(parse);
+    return node_new_case(parse, NULL, body);
+  }
+  errorf("internal error");
+}
+
 static node_t *expression_statement(parse_t *parse) {
   if (lex_next_keyword_is(parse->lex, ';')) {
     return node_new_nop(parse);
@@ -1427,16 +1451,35 @@ static node_t *expression_statement(parse_t *parse) {
   return node;
 }
 
-static node_t *selection_statement(parse_t *parse) {
-  lex_expect_keyword_is(parse->lex, '(');
-  node_t *cond = expression(parse);
-  lex_expect_keyword_is(parse->lex, ')');
-  node_t *then_body = statement(parse);
-  node_t *else_body = NULL;
-  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_ELSE)) {
-    else_body = statement(parse);
+static node_t *selection_statement(parse_t *parse, int keyword) {
+  if (keyword == TOKEN_KEYWORD_IF) {
+    lex_expect_keyword_is(parse->lex, '(');
+    node_t *cond = expression(parse);
+    lex_expect_keyword_is(parse->lex, ')');
+    node_t *then_body = statement(parse);
+    node_t *else_body = NULL;
+    if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_ELSE)) {
+      else_body = statement(parse);
+    }
+    return node_new_if(parse, cond, then_body, else_body);
+  } else if (TOKEN_KEYWORD_SWITCH) {
+    node_t *scope = node_new_block(parse, BLOCK_KIND_SWITCH, vector_new(), parse->current_scope);
+    parse->current_scope = scope;
+    parse->next_scope = scope;
+    lex_expect_keyword_is(parse->lex, '(');
+    node_t *expr = expression(parse);
+    lex_expect_keyword_is(parse->lex, ')');
+    node_t *node = node_new_switch(parse, expr, scope);
+    if (lex_next_keyword_is(parse->lex, '{')) {
+      compound_statement(parse);
+    } else {
+      parse->next_scope = NULL;
+      vector_push(scope->statements,  statement(parse));
+      parse->current_scope = scope->parent_block;
+    }
+    return node;
   }
-  return node_new_if(parse, cond, then_body, else_body);
+  errorf("internal error");
 }
 
 static node_t *iteration_statement(parse_t *parse, int keyword) {
