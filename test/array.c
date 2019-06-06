@@ -58,6 +58,11 @@ void test_global() {
   expect(3, g2[2]);
 }
 
+void test_constant_size() {
+  int a[(0 + 1 * 2 + 4 / 2 ^ 3 & ~1 % 5) << 2];
+  expect(96, sizeof(a));
+}
+
 void testmain() {
   test_basic();
   test_char_array();
@@ -65,4 +70,5 @@ void testmain() {
   test_load_two_dimensional_array();
   test_save_two_dimensional_array();
   test_global();
+  test_constant_size();
 }

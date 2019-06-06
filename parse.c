@@ -16,6 +16,7 @@ static type_t *declarator_array(parse_t *parse, type_t *type);
 static node_t *variable_declarator(parse_t *parse, type_t *type);
 static type_t *declarator(parse_t *parse, type_t *type, char **namep);
 static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep);
+static node_t *eval_constant_expression(parse_t *parse, node_t *node);
 static node_t *constant_expression(parse_t *parse);
 static node_t *conditional_expression(parse_t *parse);
 static node_t *logical_or_expression(parse_t *parse);
@@ -527,9 +528,185 @@ static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep) {
   return type;
 }
 
+static node_t *eval_constant_binary_expression_int(parse_t *parse, int op, node_t *left, node_t *right) {
+  assert(type_is_int(left->type) && type_is_int(right->type));
+  long l = left->ival, r = right->ival;
+  switch (op) {
+  case '+':
+    return node_new_int(parse, parse->type_long, l + r);
+  case '-':
+    return node_new_int(parse, parse->type_long, l - r);
+  case '*':
+    return node_new_int(parse, parse->type_long, l * r);
+  case '^':
+    return node_new_int(parse, parse->type_long, l ^ r);
+  case '/':
+    return node_new_int(parse, parse->type_long, l / r);
+  case '%':
+    return node_new_int(parse, parse->type_long, l % r);
+  case OP_SAL:
+    return node_new_int(parse, parse->type_long, l << r);
+  case OP_SAR:
+    return node_new_int(parse, parse->type_long, l >> r);
+  case '&':
+    return node_new_int(parse, parse->type_long, l & r);
+  case '|':
+    return node_new_int(parse, parse->type_long, l | r);
+  case OP_EQ:
+    return node_new_int(parse, parse->type_int, l == r);
+  case OP_NE:
+    return node_new_int(parse, parse->type_int, l != r);
+  case '<':
+    return node_new_int(parse, parse->type_int, l < r);
+  case OP_LE:
+    return node_new_int(parse, parse->type_int, l <= r);
+  case '>':
+    return node_new_int(parse, parse->type_int, l > r);
+  case OP_GE:
+    return node_new_int(parse, parse->type_int, l >= r);
+  case OP_ANDAND:
+    return node_new_int(parse, parse->type_int, l && r);
+  case OP_OROR:
+    return node_new_int(parse, parse->type_int, l || r);
+  }
+  errorf("unsupported int binary expression for constant expression");
+}
+
+static node_t *eval_constant_binary_expression_float(parse_t *parse, int op, node_t *left, node_t *right) {
+  double l, r;
+  if (type_is_float(left->type)) {
+    l = left->fval;
+  } else {
+    l = (double)left->ival;
+  }
+  if (type_is_float(right->type)) {
+    r = right->fval;
+  } else {
+    r = (double)right->ival;
+  }
+  switch (op) {
+  case '+':
+    return node_new_float(parse, parse->type_double, l + r, -1);
+  case '-':
+    return node_new_float(parse, parse->type_double, l - r, -1);
+  case '*':
+    return node_new_float(parse, parse->type_double, l * r, -1);
+  case '/':
+    return node_new_float(parse, parse->type_double, l / r, -1);
+  case OP_EQ:
+    return node_new_int(parse, parse->type_int, l == r);
+  case OP_NE:
+    return node_new_int(parse, parse->type_int, l != r);
+  case '<':
+    return node_new_int(parse, parse->type_int, l < r);
+  case OP_LE:
+    return node_new_int(parse, parse->type_int, l <= r);
+  case '>':
+    return node_new_int(parse, parse->type_int, l > r);
+  case OP_GE:
+    return node_new_int(parse, parse->type_int, l >= r);
+  case OP_ANDAND:
+    return node_new_int(parse, parse->type_int, l && r);
+  case OP_OROR:
+    return node_new_int(parse, parse->type_int, l || r);
+  }
+  errorf("unsupported float binary expression for constant expression");
+}
+
+static node_t *eval_constant_binary_expression(parse_t *parse, node_t *node) {
+  node_t *left = eval_constant_expression(parse, node->left);
+  node_t *right = eval_constant_expression(parse, node->right);
+  if (left->kind != NODE_KIND_LITERAL || right->kind != NODE_KIND_LITERAL) {
+    errorf("invalid constant expression");
+  }
+  if (type_is_int(node->type)) {
+    return eval_constant_binary_expression_int(parse, node->op, left, right);
+  } else {
+    return eval_constant_binary_expression_float(parse, node->op, left, right);
+  }
+  errorf("unsupported binary expression for constant expression");
+}
+
+static node_t *eval_constant_unary_expression(parse_t *parse, node_t *node) {
+  node_t *val = eval_constant_expression(parse, node->operand);
+  if (val->kind != NODE_KIND_LITERAL) {
+    errorf("invalid constant expression");
+  }
+  switch (node->op) {
+  case '+':
+    return val;
+  case '-':
+    if (type_is_int(val->type)) {
+      val->ival = -val->ival;
+    } else {
+      val->fval = -val->fval;
+    }
+    return val;
+  case '~':
+    if (type_is_int(val->type)) {
+      val->ival = ~val->ival;
+    } else {
+      errorf("invalid argument type '%s' to unary expression", val->type->name);
+    }
+    return val;
+  case '!':
+    if (type_is_int(val->type)) {
+      val->ival = !val->ival;
+    } else {
+      val = node_new_int(parse, parse->type_int, !val->fval);
+    }
+    return val;
+  case OP_CAST:
+    if (type_is_int(node->type)) {
+      if (type_is_int(val->type)) {
+        return val;
+      }
+      return node_new_int(parse, parse->type_long, val->fval);
+    } else if (type_is_float(node->type)) {
+      if (type_is_float(val->type)) {
+        return val;
+      }
+      return node_new_float(parse, parse->type_double, val->fval, -1);
+    }
+    errorf("unsupported cast for constant expression");
+    break;
+  }
+  errorf("unsupported unary expression for constant expression");
+}
+
+static node_t *eval_constant_expression(parse_t *parse, node_t *node) {
+  switch (node->kind) {
+  case NODE_KIND_BINARY_OP:
+    return eval_constant_binary_expression(parse, node);
+  case NODE_KIND_UNARY_OP:
+    return eval_constant_unary_expression(parse, node);
+  case NODE_KIND_LITERAL:
+    switch (node->type->kind) {
+    case TYPE_KIND_CHAR:
+    case TYPE_KIND_SHORT:
+    case TYPE_KIND_INT:
+    case TYPE_KIND_LONG:
+    case TYPE_KIND_LLONG:
+    case TYPE_KIND_FLOAT:
+    case TYPE_KIND_DOUBLE:
+      return node;
+    default:
+      errorf("unsupported literal '%s' for constant expression", node->type->name);
+    }
+    break;
+  case NODE_KIND_IF:
+    if (eval_constant_expression(parse, node->cond)) {
+      return eval_constant_expression(parse, node->then_body);
+    }
+    return eval_constant_expression(parse, node->else_body);
+  }
+  errorf("unsupported node type for constant expression");
+}
+
 static node_t *constant_expression(parse_t *parse) {
   node_t *node = conditional_expression(parse);
-  if (node->kind != NODE_KIND_LITERAL || node->type->kind != TYPE_KIND_INT) {
+  node = eval_constant_expression(parse, node);
+  if (node->kind != NODE_KIND_LITERAL || !type_is_int(node->type)) {
     errorf("integer expected, but got %d", node->kind);
   }
   return node;
