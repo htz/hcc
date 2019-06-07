@@ -8,7 +8,7 @@
 
 static node_t *external_declaration(parse_t *parse);
 static node_t *function_definition(parse_t *parse, node_t *var);
-static type_t *declaration_specifier(parse_t *parse);
+static type_t *declaration_specifier(parse_t *parse, int *sclassp);
 static type_t *struct_or_union_specifier(parse_t *parse, bool is_struct);
 static void struct_declaration(parse_t *parse, type_t *type, type_t *field_type);
 static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type);
@@ -185,9 +185,21 @@ static type_t *op_result(parse_t *parse, int op, type_t *left, type_t *right) {
 }
 
 static node_t *external_declaration(parse_t *parse) {
-  type_t *type = declaration_specifier(parse);
+  int sclass = STORAGE_CLASS_NONE;
+  type_t *type = declaration_specifier(parse, &sclass);
   if (type == NULL) {
     errorf("unknown type name");
+  }
+  if (sclass == STORAGE_CLASS_TYPEDEF) {
+    for (;;) {
+      node_t *var = variable_declarator(parse, type);
+      type_add_typedef(parse, var->vname, var->type);
+      if (lex_next_keyword_is(parse->lex, ';')) {
+        break;
+      }
+      lex_expect_keyword_is(parse->lex, ',');
+    }
+    return node_new_nop(parse);
   }
   if (lex_next_keyword_is(parse->lex, ';')) {
     return node_new_nop(parse);
@@ -210,9 +222,13 @@ static node_t *external_declaration(parse_t *parse) {
 }
 
 static node_t *function_parameter_declaration(parse_t *parse) {
-  type_t *type = declaration_specifier(parse);
+  int sclass = STORAGE_CLASS_NONE;
+  type_t *type = declaration_specifier(parse, &sclass);
   if (type == NULL) {
     errorf("unknown type name");
+  }
+  if (sclass == STORAGE_CLASS_TYPEDEF) {
+    errorf("invalid storage class specifier in function declarator");
   }
   return variable_declarator(parse, type);
 }
@@ -311,13 +327,28 @@ static type_t *select_type(parse_t *parse, type_t *type, int kind, int sign, int
   return sign == 0 ? parse->type_uint : parse->type_int;
 }
 
-static type_t *declaration_specifier(parse_t *parse) {
+static type_t *declaration_specifier(parse_t *parse, int *sclassp) {
   int kind = -1, sign = -1, size = -1;
   type_t *type = NULL;
-  token_t *token;
+  token_t *token = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+  if (token != NULL) {
+    lex_unget_token(parse->lex, token);
+    if (find_variable(parse, parse->current_scope, token->identifier) != NULL) {
+      return NULL;
+    }
+  }
   while ((token = lex_get_token(parse->lex)) != NULL) {
     if (token->kind == TOKEN_KIND_KEYWORD) {
-      if (token->keyword == TOKEN_KEYWORD_SIGNED) {
+      if (token->keyword == TOKEN_KEYWORD_TYPEDEF) {
+        if (sclassp == NULL) {
+          errorf("expected expression");
+        }
+        if (*sclassp != STORAGE_CLASS_NONE) {
+          errorf("multiple storage classes in declaration specifiers");
+        }
+        *sclassp = STORAGE_CLASS_TYPEDEF;
+        continue;
+      } else if (token->keyword == TOKEN_KEYWORD_SIGNED) {
         sign = 1;
         continue;
       } else if (token->keyword == TOKEN_KEYWORD_UNSIGNED) {
@@ -351,10 +382,18 @@ static type_t *declaration_specifier(parse_t *parse) {
         }
         continue;
       } else if (t != NULL) {
-        if (kind != -1) {
-          errorf("cannot combine with previous '%s' declaration specifier", type_kind_names_str(kind));
+        if (t->is_typedef) {
+          if (type != NULL || kind != -1) {
+            lex_unget_token(parse->lex, token);
+            break;
+          }
+          type = t;
+        } else {
+          if (kind != -1) {
+            errorf("cannot combine with previous '%s' declaration specifier", type_kind_names_str(kind));
+          }
+          kind = t->kind;
         }
-        kind = t->kind;
         continue;
       }
     }
@@ -404,7 +443,11 @@ static type_t *struct_or_union_specifier(parse_t *parse, bool is_struct) {
     errorf("redefinition of '%s'", tag->identifier);
   }
   while (!lex_next_keyword_is(parse->lex, '}')) {
-    type_t *field_type = declaration_specifier(parse);
+    int sclass = STORAGE_CLASS_NONE;
+    type_t *field_type = declaration_specifier(parse, &sclass);
+    if (sclass != STORAGE_CLASS_NONE) {
+      errorf("type name does not allow storage class to be specified");
+    }
     struct_declaration(parse, type, field_type);
   }
   align(&type->total_size, type->align);
@@ -1201,7 +1244,7 @@ static node_t *assignment_expression(parse_t *parse) {
 }
 
 static type_t *type_name(parse_t *parse) {
-  type_t *type = declaration_specifier(parse);
+  type_t *type = declaration_specifier(parse, NULL);
   if (type == NULL) {
     return NULL;
   }
@@ -1377,9 +1420,20 @@ static node_t *compound_statement(parse_t *parse) {
   }
   vector_t *statements = node->statements;
   while (!lex_next_keyword_is(parse->lex, '}')) {
-    type_t *type = declaration_specifier(parse);
+    int sclass = STORAGE_CLASS_NONE;
+    type_t *type = declaration_specifier(parse, &sclass);
     if (type != NULL) {
-      if (lex_next_keyword_is(parse->lex, ';')) {
+      if (sclass == STORAGE_CLASS_TYPEDEF) {
+        for (;;) {
+          node_t *var = variable_declarator(parse, type);
+          type_add_typedef(parse, var->vname, var->type);
+          if (lex_next_keyword_is(parse->lex, ';')) {
+            break;
+          }
+          lex_expect_keyword_is(parse->lex, ',');
+        }
+        continue;
+      } else if (lex_next_keyword_is(parse->lex, ';')) {
         continue;
       }
       vector_push(statements, declaration(parse, type));
@@ -1520,8 +1574,12 @@ static node_t *iteration_statement(parse_t *parse, int keyword) {
     node_t *init = NULL, *cond = NULL, *step = NULL;
     lex_expect_keyword_is(parse->lex, '(');
     if (!lex_next_keyword_is(parse->lex, ';')) {
-      type_t *type = declaration_specifier(parse);
+      int sclass = STORAGE_CLASS_NONE;
+      type_t *type = declaration_specifier(parse, &sclass);
       if (type != NULL) {
+        if (sclass == STORAGE_CLASS_TYPEDEF) {
+          errorf("type name does not allow storage class to be specified");
+        }
         init = declaration(parse, type);
       } else {
         init = expression(parse);

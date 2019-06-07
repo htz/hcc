@@ -348,6 +348,9 @@ retry:
     if (strcmp("default", token->identifier) == 0) {
       return new_keyword(lex, TOKEN_KEYWORD_DEFAULT);
     }
+    if (strcmp("typedef", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_TYPEDEF);
+    }
     return token;
   }
   switch (c) {
