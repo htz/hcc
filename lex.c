@@ -351,6 +351,9 @@ retry:
     if (strcmp("goto", token->identifier) == 0) {
       return new_keyword(lex, TOKEN_KEYWORD_GOTO);
     }
+    if (strcmp("typedef", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_TYPEDEF);
+    }
     return token;
   }
   switch (c) {

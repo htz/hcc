@@ -68,6 +68,7 @@ type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int s
   }
   t->fields = NULL;
   t->is_struct = false;
+  t->is_typedef = false;
   return t;
 }
 
@@ -83,6 +84,14 @@ type_t *type_new_struct(char *name, bool is_struct) {
   return t;
 }
 
+type_t *type_new_typedef(char *name, type_t *type) {
+  type_t *t = (type_t *)malloc(sizeof (type_t));
+  memcpy(t, type, sizeof(type_t));
+  t->name = strdup(name);
+  t->is_typedef = true;
+  return t;
+}
+
 type_t *type_new_enum(char *name) {
   type_t *t = type_new(name, TYPE_KIND_ENUM, false, NULL);
   t->total_size = 0;
@@ -93,7 +102,7 @@ void type_free(type_t *t) {
   if (t->name != NULL) {
     free(t->name);
   }
-  if (t->fields != NULL) {
+  if (t->fields != NULL && !t->is_typedef) {
     map_free(t->fields);
   }
   free(t);
@@ -164,6 +173,11 @@ type_t *type_get_by_tag(parse_t *parse, char *tag, bool local_only) {
     }
   }
   return (type_t *)map_get(parse->tags, tag);
+}
+
+void type_add_typedef(parse_t *parse, char *name, type_t *type) {
+  type = type_new_typedef(name, type);
+  type_add(parse, name, type);
 }
 
 static char *array_leaf_type(type_t *type) {

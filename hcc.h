@@ -78,6 +78,7 @@ struct type {
   int total_size;
   map_t *fields;
   bool is_struct;
+  bool is_typedef;
 };
 
 enum {
@@ -115,6 +116,7 @@ enum {
   TOKEN_KEYWORD_CASE,
   TOKEN_KEYWORD_DEFAULT,
   TOKEN_KEYWORD_GOTO,
+  TOKEN_KEYWORD_TYPEDEF,
   OP_SAL,    // <<
   OP_SAR,    // >>
   OP_EQ,     // ==
@@ -188,6 +190,11 @@ enum {
   BLOCK_KIND_DEFAULT,
   BLOCK_KIND_LOOP,
   BLOCK_KIND_SWITCH,
+};
+
+enum {
+  STORAGE_CLASS_NONE,
+  STORAGE_CLASS_TYPEDEF,
 };
 
 typedef struct node node_t;
@@ -358,6 +365,7 @@ void align(int *np, int a);
 type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int size);
 type_t *type_new(char *name, int kind, int sign, type_t *ptr);
 type_t *type_new_struct(char *name, bool is_struct);
+type_t *type_new_typedef(char *name, type_t *type);
 type_t *type_new_enum(char *name);
 void type_free(type_t *t);
 type_t *type_find(parse_t *parse, char *name);
@@ -366,6 +374,7 @@ type_t *type_get(parse_t *parse, char *name, type_t *parent);
 type_t *type_get_ptr(parse_t *parse, type_t *type);
 void type_add_by_tag(parse_t *parse, char *tag, type_t *type);
 type_t *type_get_by_tag(parse_t *parse, char *tag, bool local_only);
+void type_add_typedef(parse_t *parse, char *name, type_t *type);
 type_t *type_make_array(parse_t *parse, type_t *parent, int size);
 bool type_is_assignable(type_t *a, type_t *b);
 const char *type_kind_names_str(int kind);
