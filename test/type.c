@@ -11,6 +11,8 @@ void test_type() {
   float j;
   double k;
   long double l;
+  _Bool m;
+  bool n;
 }
 
 void test_signed() {

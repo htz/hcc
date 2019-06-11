@@ -1,4 +1,4 @@
-int conflict(int *board, int row, int col) {
+bool conflict(int *board, int row, int col) {
   for (int i = 0; i < row; i++) {
     if (board[i * 8 + col]) {
       return 1;

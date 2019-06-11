@@ -101,6 +101,7 @@ static type_t *op_result(parse_t *parse, int op, type_t *left, type_t *right) {
     }
   }
   switch (left->kind) {
+  case TYPE_KIND_BOOL:
   case TYPE_KIND_CHAR:
   case TYPE_KIND_SHORT:
   case TYPE_KIND_INT:
@@ -288,6 +289,14 @@ static type_t *select_type(parse_t *parse, type_t *type, int kind, int sign, int
       errorf("'void' cannot be signed or unsigned");
     }
     return parse->type_void;
+  case TYPE_KIND_BOOL:
+    if (size != -1) {
+      errorf("'%s bool' is invalid", type_kind_names_str(size));
+    }
+    if (sign != -1) {
+      errorf("'bool' cannot be signed or unsigned");
+    }
+    return parse->type_bool;
   case TYPE_KIND_CHAR:
     if (size != -1) {
       errorf("'%s char' is invalid", type_kind_names_str(size));
@@ -597,21 +606,21 @@ static node_t *eval_constant_binary_expression_int(parse_t *parse, int op, node_
   case '|':
     return node_new_int(parse, parse->type_long, l | r);
   case OP_EQ:
-    return node_new_int(parse, parse->type_int, l == r);
+    return node_new_int(parse, parse->type_bool, l == r);
   case OP_NE:
-    return node_new_int(parse, parse->type_int, l != r);
+    return node_new_int(parse, parse->type_bool, l != r);
   case '<':
-    return node_new_int(parse, parse->type_int, l < r);
+    return node_new_int(parse, parse->type_bool, l < r);
   case OP_LE:
-    return node_new_int(parse, parse->type_int, l <= r);
+    return node_new_int(parse, parse->type_bool, l <= r);
   case '>':
-    return node_new_int(parse, parse->type_int, l > r);
+    return node_new_int(parse, parse->type_bool, l > r);
   case OP_GE:
-    return node_new_int(parse, parse->type_int, l >= r);
+    return node_new_int(parse, parse->type_bool, l >= r);
   case OP_ANDAND:
-    return node_new_int(parse, parse->type_int, l && r);
+    return node_new_int(parse, parse->type_bool, l && r);
   case OP_OROR:
-    return node_new_int(parse, parse->type_int, l || r);
+    return node_new_int(parse, parse->type_bool, l || r);
   }
   errorf("unsupported int binary expression for constant expression");
 }
@@ -638,21 +647,21 @@ static node_t *eval_constant_binary_expression_float(parse_t *parse, int op, nod
   case '/':
     return node_new_float(parse, parse->type_double, l / r, -1);
   case OP_EQ:
-    return node_new_int(parse, parse->type_int, l == r);
+    return node_new_int(parse, parse->type_bool, l == r);
   case OP_NE:
-    return node_new_int(parse, parse->type_int, l != r);
+    return node_new_int(parse, parse->type_bool, l != r);
   case '<':
-    return node_new_int(parse, parse->type_int, l < r);
+    return node_new_int(parse, parse->type_bool, l < r);
   case OP_LE:
-    return node_new_int(parse, parse->type_int, l <= r);
+    return node_new_int(parse, parse->type_bool, l <= r);
   case '>':
-    return node_new_int(parse, parse->type_int, l > r);
+    return node_new_int(parse, parse->type_bool, l > r);
   case OP_GE:
-    return node_new_int(parse, parse->type_int, l >= r);
+    return node_new_int(parse, parse->type_bool, l >= r);
   case OP_ANDAND:
-    return node_new_int(parse, parse->type_int, l && r);
+    return node_new_int(parse, parse->type_bool, l && r);
   case OP_OROR:
-    return node_new_int(parse, parse->type_int, l || r);
+    return node_new_int(parse, parse->type_bool, l || r);
   }
   errorf("unsupported float binary expression for constant expression");
 }
@@ -697,7 +706,7 @@ static node_t *eval_constant_unary_expression(parse_t *parse, node_t *node) {
     if (type_is_int(val->type)) {
       val->ival = !val->ival;
     } else {
-      val = node_new_int(parse, parse->type_int, !val->fval);
+      val = node_new_int(parse, parse->type_bool, !val->fval);
     }
     return val;
   case OP_CAST:
@@ -778,7 +787,7 @@ static node_t *logical_or_expression(parse_t *parse) {
       break;
     }
     node_t *right = logical_and_expression(parse);
-    node = node_new_binary_op(parse, parse->type_int, OP_OROR, node, right);
+    node = node_new_binary_op(parse, parse->type_bool, OP_OROR, node, right);
   }
   return node;
 }
@@ -790,7 +799,7 @@ static node_t *logical_and_expression(parse_t *parse) {
       break;
     }
     node_t *right = inclusive_or_expression(parse);
-    node = node_new_binary_op(parse, parse->type_int, OP_ANDAND, node, right);
+    node = node_new_binary_op(parse, parse->type_bool, OP_ANDAND, node, right);
   }
   return node;
 }
@@ -852,7 +861,7 @@ static node_t *equality_expression(parse_t *parse) {
       break;
     }
     node_t *right = relational_expression(parse);
-    node = node_new_binary_op(parse, parse->type_int, op, node, right);
+    node = node_new_binary_op(parse, parse->type_bool, op, node, right);
   }
   return node;
 }
@@ -873,7 +882,7 @@ static node_t *relational_expression(parse_t *parse) {
       break;
     }
     node_t *right = shift_expression(parse);
-    node = node_new_binary_op(parse, parse->type_int, op, node, right);
+    node = node_new_binary_op(parse, parse->type_bool, op, node, right);
   }
   return node;
 }
@@ -1656,6 +1665,8 @@ static parse_t *parse_new(FILE *fp) {
 
   parse->type_void = type_new("void", TYPE_KIND_VOID, false, NULL);
   map_add(parse->types, parse->type_void->name, parse->type_void);
+  parse->type_bool = type_new("_Bool", TYPE_KIND_BOOL, true, NULL);
+  type_add(parse, parse->type_bool->name, parse->type_bool);
   parse->type_char = type_new("char", TYPE_KIND_CHAR, true, NULL);
   type_add(parse, parse->type_char->name, parse->type_char);
   parse->type_schar = type_new("signed char", TYPE_KIND_CHAR, true, NULL);
@@ -1684,6 +1695,8 @@ static parse_t *parse_new(FILE *fp) {
   type_add(parse, parse->type_double->name, parse->type_double);
   parse->type_ldouble = type_new("long double", TYPE_KIND_LDOUBLE, false, NULL);
   type_add(parse, parse->type_ldouble->name, parse->type_ldouble);
+
+  type_add_typedef(parse, "bool", parse->type_bool);
 
   return parse;
 }

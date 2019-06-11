@@ -380,6 +380,20 @@ static void emit_store(parse_t *parse, node_t *var, type_t *type) {
   emit_save(parse, var, var->type, 0, 0);
 }
 
+static void emit_cast_to_bool(parse_t *parse, type_t *type) {
+  if (type_is_float(type)) {
+    emit_push_xmm(parse, 1);
+    emitf("xorpd %%xmm1, %%xmm1");
+    emitf("%s %%xmm1, %%xmm0", type->kind == TYPE_KIND_FLOAT ? "ucomiss" : "ucomisd");
+    emitf("setne %%al");
+    emit_pop_xmm(parse, 1);
+  } else {
+    emitf("cmp $0, %%rax");
+    emitf("setne %%al");
+  }
+  emitf("movzb %%al, %%eax");
+}
+
 static void emit_cast_to_int(parse_t *parse, type_t *type) {
   switch (type->kind) {
   case TYPE_KIND_CHAR:
@@ -409,7 +423,9 @@ static void emit_cast_to_int(parse_t *parse, type_t *type) {
 }
 
 static void emit_cast(parse_t *parse, type_t *to, type_t *from) {
-  if (type_is_int(to)) {
+  if (type_is_bool(to)) {
+    emit_cast_to_bool(parse, from);
+  } else if (type_is_int(to)) {
     emit_cast_to_int(parse, from);
   } else if (to->kind == TYPE_KIND_FLOAT) {
     if (type_is_int(from)) {
