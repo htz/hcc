@@ -52,6 +52,7 @@ struct string {
 
 enum {
   TYPE_KIND_VOID,
+  TYPE_KIND_BOOL,
   TYPE_KIND_CHAR,
   TYPE_KIND_SHORT,
   TYPE_KIND_INT,
@@ -315,6 +316,7 @@ struct parse {
   // builtin types
   type_t *type_void;
   type_t *type_char;
+  type_t *type_bool;
   type_t *type_schar;
   type_t *type_short;
   type_t *type_ushort;
@@ -378,6 +380,7 @@ void type_add_typedef(parse_t *parse, char *name, type_t *type);
 type_t *type_make_array(parse_t *parse, type_t *parent, int size);
 bool type_is_assignable(type_t *a, type_t *b);
 const char *type_kind_names_str(int kind);
+bool type_is_bool(type_t *type);
 bool type_is_int(type_t *type);
 bool type_is_float(type_t *type);
 bool type_is_struct(type_t *type);

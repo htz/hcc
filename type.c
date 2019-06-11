@@ -6,6 +6,7 @@
 
 const char *type_kind_names[] = {
   "void",
+  "_Bool",
   "char",
   "short",
   "int",
@@ -30,6 +31,10 @@ type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int s
   t->parent = parent;
   switch (kind) {
   case TYPE_KIND_VOID:
+    t->bytes = 1;
+    t->align = 1;
+    break;
+  case TYPE_KIND_BOOL:
     t->bytes = 1;
     t->align = 1;
     break;
@@ -242,8 +247,13 @@ const char *type_kind_names_str(int kind) {
   return type_kind_names[kind];
 }
 
+bool type_is_bool(type_t *type) {
+  return type->kind == TYPE_KIND_BOOL;
+}
+
 bool type_is_int(type_t *type) {
   return
+    type->kind == TYPE_KIND_BOOL ||
     type->kind == TYPE_KIND_CHAR ||
     type->kind == TYPE_KIND_SHORT ||
     type->kind == TYPE_KIND_INT ||
