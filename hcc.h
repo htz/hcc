@@ -65,6 +65,7 @@ enum {
   TYPE_KIND_ARRAY,
   TYPE_KIND_STRUCT,
   TYPE_KIND_ENUM,
+  TYPE_KIND_FUNCTION,
 };
 
 typedef struct type type_t;
@@ -77,9 +78,16 @@ struct type {
   int size;
   int align;
   int total_size;
-  map_t *fields;
-  bool is_struct;
-  bool is_typedef;
+  union {
+    // struct/union
+    struct {
+      map_t *fields;
+      bool is_struct;
+      bool is_typedef;
+    };
+    // function
+    vector_t *argtypes;
+  };
 };
 
 enum {
@@ -333,6 +341,7 @@ vector_t *vector_new(void);
 void vector_free(vector_t *vec);
 void vector_push(vector_t *vec, void *d);
 void *vector_pop(vector_t *vec);
+void *vector_dup(vector_t *vec);
 
 // map.c
 map_t *map_new(void);
@@ -368,6 +377,7 @@ type_t *type_find(parse_t *parse, char *name);
 void type_add(parse_t *parse, char *name, type_t *type);
 type_t *type_get(parse_t *parse, char *name, type_t *parent);
 type_t *type_get_ptr(parse_t *parse, type_t *type);
+type_t *type_get_function(parse_t *parse, type_t *rettype, vector_t *argtypes);
 void type_add_by_tag(parse_t *parse, char *tag, type_t *type);
 type_t *type_get_by_tag(parse_t *parse, char *tag, bool local_only);
 void type_add_typedef(parse_t *parse, char *name, type_t *type);
@@ -378,6 +388,7 @@ bool type_is_bool(type_t *type);
 bool type_is_int(type_t *type);
 bool type_is_float(type_t *type);
 bool type_is_struct(type_t *type);
+bool type_is_function(type_t *type);
 
 // token.c
 token_t *token_new(lex_t *lex, int kind);

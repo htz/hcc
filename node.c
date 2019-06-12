@@ -69,7 +69,11 @@ node_t *node_new_init_list(parse_t *parse, type_t *type, vector_t *init) {
 node_t *node_new_variable(parse_t *parse, type_t *type, char *vname, bool global) {
   node_t *node = node_new(parse, NODE_KIND_VARIABLE);
   node->type = type;
-  node->vname = strdup(vname);
+  if (vname != NULL) {
+    node->vname = strdup(vname);
+  } else {
+    node->vname = NULL;
+  }
   node->voffset = 0;
   node->global = global;
   return node;
@@ -269,7 +273,9 @@ void node_free(node_t *node) {
     vector_free(node->init_list);
     break;
   case NODE_KIND_VARIABLE:
-    free(node->vname);
+    if (node->vname != NULL) {
+      free(node->vname);
+    }
     break;
   case NODE_KIND_DECLARATION:
     break;
@@ -404,7 +410,7 @@ void node_debug(node_t *node) {
     printf(")");
     break;
   case NODE_KIND_FUNCTION:
-    printf("(%s->%s [", node->fvar->vname, node->fvar->type->name);
+    printf("(%s->%s [", node->fvar->vname, node->fvar->type->parent->name);
     for (int i = 0; i < node->fargs->size; i++) {
       node_debug((node_t *)node->fargs->data[i]);
       if (i < node->fargs->size - 1) {

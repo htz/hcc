@@ -47,3 +47,12 @@ void vector_push(vector_t *vec, void *d) {
 void *vector_pop(vector_t *vec) {
     return vec->data[--vec->size];
 }
+
+void *vector_dup(vector_t *vec) {
+  vector_t *vector = (vector_t *)malloc(sizeof (vector_t));
+  vector->size = vec->size;
+  vector->capacity = vec->capacity;
+  vector->data = malloc(sizeof (void *) * vec->capacity);
+  memcpy(vector->data, vec->data, sizeof (void *) * vec->capacity);
+  return vector;
+}

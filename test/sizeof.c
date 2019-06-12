@@ -1,3 +1,5 @@
+void expect(int a, int b);
+
 void test_primitives() {
   expect(1, sizeof(void));
   expect(1, sizeof(char));

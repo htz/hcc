@@ -1,3 +1,5 @@
+void expect(int a, int b);
+
 void test_basic() {
   enum {
     a = 1,

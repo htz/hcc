@@ -1,3 +1,5 @@
+void expect(int a, int b);
+
 void test_basic() {
   int a = 61;
   int *p = &a;
@@ -20,9 +22,9 @@ void test_char() {
   {
     signed char a[3] = {0xa0, 0xa1, 0xa2};
     signed char *p = a;
-    expect(0xa0, *p++);
-    expect(0xa1, *p++);
-    expect(0xa2, *p++);
+    expect(-96, *p++);
+    expect(-95, *p++);
+    expect(-94, *p++);
   }
   {
     unsigned char a[3] = {0xa0, 0xa1, 0xa2};

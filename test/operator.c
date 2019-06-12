@@ -1,3 +1,5 @@
+void expect(int a, int b);
+
 void test_basic() {
   expect(3, 1 + 2);
   expect(3, 1 - -2);
