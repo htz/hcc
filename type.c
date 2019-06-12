@@ -107,8 +107,12 @@ void type_free(type_t *t) {
   if (t->name != NULL) {
     free(t->name);
   }
-  if (t->fields != NULL && !t->is_typedef) {
-    map_free(t->fields);
+  if (!t->is_typedef) {
+    if (t->kind == TYPE_KIND_FUNCTION) {
+      vector_free(t->argtypes);
+    } else if (t->fields != NULL) {
+      map_free(t->fields);
+    }
   }
   free(t);
 }
@@ -149,6 +153,28 @@ type_t *type_get_ptr(parse_t *parse, type_t *type) {
   type = type_get(parse, name->buf, type);
   if (type == NULL) {
     errorf("get pointer type error: &%s", type->name);
+  }
+  string_free(name);
+  return type;
+}
+
+type_t *type_get_function(parse_t *parse, type_t *rettype, vector_t *argtypes) {
+  string_t *name = string_new();
+  string_appendf(name, "%s (*)(", rettype->name);
+  for (int i = 0; i < argtypes->size; i++) {
+    type_t *t = (type_t *)argtypes->data[i];
+    if (i > 0) {
+      string_append(name, ", ");
+    }
+    string_appendf(name, "%s", t->name);
+  }
+  string_append(name, ")");
+  type_t *type = (type_t *)map_get(parse->types, name->buf);
+  if (type == NULL) {
+    type = type_new(name->buf, TYPE_KIND_FUNCTION, false, NULL);
+    type->parent = rettype;
+    type->argtypes = vector_dup(argtypes);
+    map_add(parse->types, name->buf, type);
   }
   string_free(name);
   return type;
@@ -270,4 +296,8 @@ bool type_is_float(type_t *type) {
 
 bool type_is_struct(type_t *type) {
   return type->kind == TYPE_KIND_STRUCT;
+}
+
+bool type_is_function(type_t *type) {
+  return type->kind == TYPE_KIND_FUNCTION;
 }

@@ -866,17 +866,25 @@ static void emit_declaration_init(parse_t *parse, node_t *var, node_t *init) {
 
 static void emit_call(parse_t *parse, node_t *node) {
   int i;
-  vector_t *iargs = vector_new();
-  vector_t *xargs = vector_new();
-  vector_t *rargs = vector_new();
+  vector_t *iargs = vector_new(), *iargtypes = vector_new();
+  vector_t *xargs = vector_new(), *xargtypes = vector_new();
+  vector_t *rargs = vector_new(), *rargtypes = vector_new();
   for (i = 0; i < node->args->size; i++) {
     node_t *n = (node_t *)node->args->data[i];
-    if (type_is_struct(n->type)) {
+    type_t *t = n->type;
+    if (node->func->type != NULL) {
+      assert(i < node->func->type->argtypes->size);
+      t = (type_t *)node->func->type->argtypes->data[i];
+    }
+    if (type_is_struct(t)) {
       vector_push(rargs, n);
-    } else if (type_is_float(n->type)) {
+      vector_push(rargtypes, t);
+    } else if (type_is_float(t)) {
       vector_push(xargs->size < 8 ? xargs : rargs, n);
+      vector_push(xargtypes->size < 8 ? xargtypes: rargtypes, t);
     } else {
       vector_push(iargs->size < 6 ? iargs : rargs, n);
+      vector_push(iargtypes->size < 6 ? iargtypes : rargtypes, t);
     }
   }
   int old_stackpos = parse->stackpos;
@@ -893,16 +901,18 @@ static void emit_call(parse_t *parse, node_t *node) {
   // build arguments
   for (i = rargs->size - 1; i >= 0; i--) {
     node_t *n = (node_t *)rargs->data[i];
+    type_t *t = (type_t *)rargtypes->data[i];
     emit_expression(parse, n);
-    if (type_is_struct(n->type)) {
-      int size = n->type->total_size;
+    emit_cast(parse, t, n->type);
+    if (type_is_struct(t)) {
+      int size = t->total_size;
       align(&size, 8);
       emitf("mov %%rax, %%rsi");
       emit_add_rsp(parse, -size);
       emitf("mov %%rsp, %%rdi");
       emitf("mov $%d, %%rcx", size);
       emitf("rep movsb");
-    } else if (type_is_float(n->type)) {
+    } else if (type_is_float(t)) {
       emit_push_xmm(parse, 0);
     } else {
       emit_push(parse, "rax");
@@ -910,8 +920,10 @@ static void emit_call(parse_t *parse, node_t *node) {
   }
   for (i = xargs->size - 1; i >= 0 ; i--) {
     node_t *n = (node_t *)xargs->data[i];
+    type_t *t = (type_t *)xargtypes->data[i];
     emit_expression(parse, n);
-    if (n->type->kind == TYPE_KIND_DOUBLE || n->type->kind == TYPE_KIND_LDOUBLE) {
+    emit_cast(parse, t, n->type);
+    if (t->kind == TYPE_KIND_DOUBLE || t->kind == TYPE_KIND_LDOUBLE) {
       if (i != 0) {
         emitf("movsd %%xmm0, %%xmm%d", i);
       }
@@ -923,7 +935,9 @@ static void emit_call(parse_t *parse, node_t *node) {
   }
   for (i = 0; i < iargs->size; i++) {
     node_t *n = (node_t *)iargs->data[i];
+    type_t *t = (type_t *)iargtypes->data[i];
     emit_expression(parse, n);
+    emit_cast(parse, t, n->type);
     emitf("mov %%rax, %%%s", REGS[i]);
   }
   // call function
@@ -931,10 +945,10 @@ static void emit_call(parse_t *parse, node_t *node) {
   emitf("call %s", node->func->identifier);
   // restore registers
   int rsize = padding;
-  for (int i = 0; i < rargs->size; i++) {
-    node_t *n = (node_t *)rargs->data[i];
-    if (type_is_struct(n->type)) {
-      int size = n->type->total_size;
+  for (int i = 0; i < rargtypes->size; i++) {
+    type_t *t = (type_t *)rargtypes->data[i];
+    if (type_is_struct(t)) {
+      int size = t->total_size;
       align(&size, 8);
       rsize += size;
     } else {
@@ -951,8 +965,11 @@ static void emit_call(parse_t *parse, node_t *node) {
   assert(old_stackpos == parse->stackpos);
 
   vector_free(iargs);
+  vector_free(iargtypes);
   vector_free(xargs);
+  vector_free(xargtypes);
   vector_free(rargs);
+  vector_free(rargtypes);
 }
 
 static void emit_if(parse_t *parse, node_t *node) {

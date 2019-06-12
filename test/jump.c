@@ -1,3 +1,5 @@
+void expect(int a, int b);
+
 void test_goto() {
   int acc = 0;
   goto x;

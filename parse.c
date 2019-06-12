@@ -7,15 +7,15 @@
 #include "hcc.h"
 
 static node_t *external_declaration(parse_t *parse);
-static node_t *function_definition(parse_t *parse, node_t *var);
+static node_t *function_definition(parse_t *parse, node_t *var, vector_t *args);
 static type_t *declaration_specifier(parse_t *parse, int *sclassp);
 static type_t *struct_or_union_specifier(parse_t *parse, bool is_struct);
 static void struct_declaration(parse_t *parse, type_t *type, type_t *field_type);
 static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type);
 static type_t *declarator_array(parse_t *parse, type_t *type);
-static node_t *variable_declarator(parse_t *parse, type_t *type);
-static type_t *declarator(parse_t *parse, type_t *type, char **namep);
-static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep);
+static node_t *variable_declarator(parse_t *parse, type_t *type, vector_t **argsp);
+static type_t *declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp);
+static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp);
 static node_t *eval_constant_expression(parse_t *parse, node_t *node);
 static node_t *constant_expression(parse_t *parse);
 static node_t *conditional_expression(parse_t *parse);
@@ -193,7 +193,7 @@ static node_t *external_declaration(parse_t *parse) {
   }
   if (sclass == STORAGE_CLASS_TYPEDEF) {
     for (;;) {
-      node_t *var = variable_declarator(parse, type);
+      node_t *var = variable_declarator(parse, type, NULL);
       type_add_typedef(parse, var->vname, var->type);
       if (lex_next_keyword_is(parse->lex, ';')) {
         break;
@@ -206,67 +206,79 @@ static node_t *external_declaration(parse_t *parse) {
     return node_new_nop(parse);
   }
 
-  node_t *var = variable_declarator(parse, type);
-  if (lex_next_keyword_is(parse->lex, '(')) {
-    return function_definition(parse, var);
+  node_t *node;
+  vector_t *args = NULL;
+  node_t *var = variable_declarator(parse, type, &args);
+  if (type_is_function(var->type)) {
+    assert(parse->current_scope == NULL);
+    node_t *n = find_variable(parse, parse->current_scope, var->vname);
+    if (n == NULL) {
+      add_var(parse, var);
+    } else if (n->type != var->type) {
+      errorf("conflicting types for '%s'", var->vname);
+    }
+
+    assert(args != NULL);
+    if (lex_next_keyword_is(parse->lex, '{')) {
+      node = function_definition(parse, var, args);
+      vector_free(args);
+      return node;
+    }
+    vector_free(args);
+    args = NULL;
+    node = node_new_nop(parse);
+  } else {
+    if (args != NULL) {
+      vector_free(args);
+      args = NULL;
+    }
+    node = init_declarator(parse, var);
   }
 
-  node_t *node = init_declarator(parse, var);
   node_t *prev = node;
   while (lex_next_keyword_is(parse->lex, ',')) {
-    var = variable_declarator(parse, type);
-    prev->next = init_declarator(parse, var);
+    var = variable_declarator(parse, type, NULL);
+    if (type_is_function(var->type)) {
+      node_t *n = find_variable(parse, parse->current_scope, var->vname);
+      if (n == NULL) {
+        add_var(parse, var);
+      } else if (n->type != var->type) {
+        errorf("conflicting types for '%s'", var->vname);
+      }
+      prev->next = node_new_nop(parse);
+    } else {
+      prev->next = init_declarator(parse, var);
+    }
     prev = prev->next;
   }
   lex_expect_keyword_is(parse->lex, ';');
   return node;
 }
 
-static node_t *function_parameter_declaration(parse_t *parse) {
-  int sclass = STORAGE_CLASS_NONE;
-  type_t *type = declaration_specifier(parse, &sclass);
-  if (type == NULL) {
-    errorf("unknown type name");
-  }
-  if (sclass == STORAGE_CLASS_TYPEDEF) {
-    errorf("invalid storage class specifier in function declarator");
-  }
-  return variable_declarator(parse, type);
-}
-
-static node_t *function_definition(parse_t *parse, node_t *var) {
+static node_t *function_definition(parse_t *parse, node_t *var, vector_t *args) {
   vector_t *fargs = vector_new();
   node_t *scope = node_new_block(parse, BLOCK_KIND_DEFAULT, vector_new(), NULL);
-  node_t *node = node_new_function(parse, var, fargs, NULL);
+  node_t *node = node_new_function(parse, var, fargs, scope);
   parse->current_function = node;
   parse->current_scope = scope;
   parse->next_scope = scope;
-  token_t *token = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
-  bool empty_args = false;
-  if (token != NULL) {
-    if (strcmp("void", token->identifier) == 0 && lex_next_keyword_is(parse->lex, ')')) {
-      empty_args = true;
-    } else {
-      lex_unget_token(parse->lex, token);
-    }
-  }
-  if (!empty_args && !lex_next_keyword_is(parse->lex, ')')) {
-    for (;;) {
-      node_t *arg = function_parameter_declaration(parse);
-      if (arg->type->kind == TYPE_KIND_VOID) {
-        errorf("void is not allowed");
-      }
+
+  assert(args->size == var->type->argtypes->size);
+  for (int i = 0; i < args->size; i++) {
+    char *name = (char *)args->data[i];
+    type_t *t = (type_t *)var->type->argtypes->data[i];
+    node_t *arg = node_new_variable(parse, t, name, false);
+    if (name != NULL) {
       add_var(parse, arg);
-      vector_push(fargs, arg);
-      if (lex_next_keyword_is(parse->lex, ')')) {
-        break;
-      }
-      lex_expect_keyword_is(parse->lex, ',');
     }
+    vector_push(fargs, arg);
   }
-  lex_expect_keyword_is(parse->lex, '{');
-  node->fbody = compound_statement(parse);
+
+  compound_statement(parse);
   parse->current_function = NULL;
+  parse->current_scope = NULL;
+  parse->next_scope = NULL;
+
   return node;
 }
 
@@ -506,7 +518,7 @@ static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type) 
   }
 
   char *name;
-  field_type = declarator(parse, field_type, &name);
+  field_type = declarator(parse, field_type, &name, NULL);
   if (field_type->kind == TYPE_KIND_VOID) {
     errorf("void is not allowed");
   }
@@ -538,33 +550,23 @@ static type_t *declarator_array(parse_t *parse, type_t *type) {
   return type;
 }
 
-static node_t *variable_declarator(parse_t *parse, type_t *type) {
+static node_t *variable_declarator(parse_t *parse, type_t *type, vector_t **argsp) {
   char *name;
-  type = declarator(parse, type, &name);
+  type = declarator(parse, type, &name, argsp);
   if (parse->current_function) {
     return node_new_variable(parse, type, name, false);
   }
   return node_new_variable(parse, type, name, true);
 }
 
-static type_t *declarator(parse_t *parse, type_t *type, char **namep) {
+static type_t *declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp) {
   while (lex_next_keyword_is(parse->lex, '*')) {
     type = type_get_ptr(parse, type);
   }
-  return direct_declarator(parse, type, namep);
+  return direct_declarator(parse, type, namep, argsp);
 }
 
-static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep) {
-  if (lex_next_keyword_is(parse->lex, '(')) {
-    type = declarator(parse, type, namep);
-    lex_expect_keyword_is(parse->lex, ')');
-    return type;
-  }
-
-  if (namep) {
-    token_t *token = lex_expect_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
-    *namep = token->identifier;
-  }
+static type_t *direct_declarator_tail(parse_t *parse, type_t *type, vector_t **argsp) {
   if (lex_next_keyword_is(parse->lex, '[')) {
     node_t *size = NULL;
     if (!lex_next_keyword_is(parse->lex, ']')) {
@@ -577,8 +579,55 @@ static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep) {
     } else {
       type = type_make_array(parse, parent_type, size->ival);
     }
+  } else if (lex_next_keyword_is(parse->lex, '(')) {
+    vector_t *args = vector_new();
+    vector_t *argtypes = vector_new();
+    while (!lex_next_keyword_is(parse->lex, ')')) {
+      if (args->size > 0) {
+        lex_expect_keyword_is(parse->lex, ',');
+      }
+      int sclass = -1;
+      char *name = NULL;
+      type_t *t = declaration_specifier(parse, &sclass);
+      t = declarator(parse, t, &name, NULL);
+      if (t->kind == TYPE_KIND_VOID) {
+        if (args->size == 0 && name == NULL) {
+          lex_expect_keyword_is(parse->lex, ')');
+          break;
+        }
+        errorf("void is not allowed");
+      }
+      if (sclass == STORAGE_CLASS_TYPEDEF) {
+        errorf("invalid storage class specifier in function declarator");
+      }
+      vector_push(args, name);
+      vector_push(argtypes, t);
+    }
+    type = type_get_function(parse, type, argtypes);
+    if (argsp) {
+      *argsp = args;
+    } else {
+      vector_free(args);
+    }
+    vector_free(argtypes);
   }
   return type;
+}
+
+static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp) {
+  if (lex_next_keyword_is(parse->lex, '(')) {
+    type = declarator(parse, type, namep, argsp);
+    lex_expect_keyword_is(parse->lex, ')');
+    return direct_declarator_tail(parse, type, argsp);
+  }
+
+  if (namep) {
+    token_t *token = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+    if (token != NULL) {
+      *namep = token->identifier;
+    }
+  }
+  return direct_declarator_tail(parse, type, argsp);
 }
 
 static node_t *eval_constant_binary_expression_int(parse_t *parse, int op, node_t *left, node_t *right) {
@@ -1069,12 +1118,43 @@ static vector_t *func_args(parse_t *parse) {
   return args;
 }
 
+static void check_call_args(parse_t *parse, node_t *node, vector_t *args) {
+  if (node->type->argtypes->size < args->size) {
+    errorf("too few arguments to function '%s'", node->identifier);
+  } else if (node->type->argtypes->size > args->size) {
+    errorf("too many arguments to function '%s'", node->identifier);
+  }
+  for (int i = 0; i < args->size; i++) {
+    type_t *t = (type_t *)node->type->argtypes->data[i];
+    node_t *arg = (node_t *)args->data[i];
+    if (!type_is_assignable(t, arg->type)) {
+      errorf("passing '%s' to parameter of incompatible type '%s'", arg->type->name, t->name);
+    }
+  }
+}
+
 static node_t *postfix_expression(parse_t *parse) {
   node_t *node = primary_expression(parse);
   for (;;) {
     if (lex_next_keyword_is(parse->lex, '(')) {
       vector_t *args = func_args(parse);
-      node = node_new_call(parse, parse->type_int, node, args);
+      node_t *func = NULL;
+      if (node->kind == NODE_KIND_IDENTIFIER) {
+        func = find_variable(parse, parse->current_scope, node->identifier);
+        if (func != NULL) {
+          node = func;
+        } else {
+          warnf("implicit declaration of function '%s'", node->identifier);
+        }
+      }
+      if (node->type == NULL) {
+        node = node_new_call(parse, parse->type_int, node, args);
+      } else if (type_is_function(node->type)) {
+        check_call_args(parse, node, args);
+        node = node_new_call(parse, node->type->parent, node, args);
+      } else {
+        errorf("called object type '%s' is not a function or function pointer", node->type->name);
+      }
     } else if (node->kind == NODE_KIND_IDENTIFIER) {
       node_t *var = find_variable(parse, parse->current_scope, node->identifier);
       if (var == NULL) {
@@ -1262,7 +1342,7 @@ static type_t *type_name(parse_t *parse) {
 }
 
 static type_t *abstract_declarator(parse_t *parse, type_t *type) {
-  return declarator(parse, type, NULL);
+  return declarator(parse, type, NULL, NULL);
 }
 
 static type_t *make_empty_enum_type(parse_t *parse, token_t *tag) {
@@ -1342,11 +1422,11 @@ static int enumerator(parse_t *parse, type_t *type, int n) {
 }
 
 static node_t *declaration(parse_t *parse, type_t *type) {
-  node_t *var = variable_declarator(parse, type);
+  node_t *var = variable_declarator(parse, type, NULL);
   node_t *node = init_declarator(parse, var);
   node_t *prev = node;
   while (lex_next_keyword_is(parse->lex, ',')) {
-    var = variable_declarator(parse, type);
+    var = variable_declarator(parse, type, NULL);
     prev->next = init_declarator(parse, var);
     prev = prev->next;
   }
@@ -1434,7 +1514,7 @@ static node_t *compound_statement(parse_t *parse) {
     if (type != NULL) {
       if (sclass == STORAGE_CLASS_TYPEDEF) {
         for (;;) {
-          node_t *var = variable_declarator(parse, type);
+          node_t *var = variable_declarator(parse, type, NULL);
           type_add_typedef(parse, var->vname, var->type);
           if (lex_next_keyword_is(parse->lex, ';')) {
             break;
@@ -1652,8 +1732,8 @@ static node_t *jump_statement(parse_t *parse, int keyword) {
 
   assert(keyword == TOKEN_KEYWORD_RETURN);
   node_t *var = parse->current_function->fvar;
-  assert(var != NULL);
-  type_t *type = var->type;
+  assert(var != NULL && type_is_function(var->type));
+  type_t *type = var->type->parent;
   node_t *exp = NULL;
   if (!lex_next_keyword_is(parse->lex, ';')) {
     if (type->kind == TYPE_KIND_VOID) {

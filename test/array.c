@@ -1,3 +1,5 @@
+void expect(int a, int b);
+
 void test_basic() {
   int a1[1] = {55};
   int *p1 = a1;

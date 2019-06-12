@@ -1,3 +1,5 @@
+void expect(int a, int b);
+
 void test_while() {
   int i = 0;
   while (i < 100) i++;

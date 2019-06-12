@@ -1,3 +1,6 @@
+void expect(int a, int b);
+int strcmp(char *s1, char *s2);
+
 int t1() {
   return 77;
 }
@@ -64,6 +67,12 @@ int t9(int i1, double d1, int i2, double d2, int i3, double d3, int i4, double d
   return (int)(sumi + sumd);
 }
 
+int t10(int, int, int);
+int t10(int a, int, int c) {
+  expect(1, a);
+  expect(3, c);
+}
+
 void testmain() {
   expect(77, t1());
   t2(79);
@@ -74,4 +83,5 @@ void testmain() {
   expect(12, t7(3, 4));
   expect(0, t8("test"));
   expect(94, t9(1, 1.23, 2, 2.34, 3, 3.45, 4, 4.56, 5, 5.67, 6, 6.78, 7, 7.89, 8, 8.90, 9, 9.01));
+  t10(1, 2, 3);
 }

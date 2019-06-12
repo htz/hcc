@@ -1,3 +1,5 @@
+void expect(int a, int b);
+
 void test_switch() {
   int a = 0;
   switch (1 + 2) {
