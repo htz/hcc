@@ -49,6 +49,11 @@ void test_vars() {
   char *c[5];
   expect(40, sizeof(c));
   expect(4, sizeof((int)a));
+  char *(*d)[3];
+  expect(8, sizeof(d));
+  expect(24, sizeof(*d));
+  expect(8, sizeof(**d));
+  expect(1, sizeof(***d));
 }
 
 void test_struct() {

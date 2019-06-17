@@ -66,6 +66,7 @@ enum {
   TYPE_KIND_STRUCT,
   TYPE_KIND_ENUM,
   TYPE_KIND_FUNCTION,
+  TYPE_KIND_STUB,
 };
 
 typedef struct type type_t;
@@ -372,6 +373,7 @@ type_t *type_new(char *name, int kind, int sign, type_t *ptr);
 type_t *type_new_struct(char *name, bool is_struct);
 type_t *type_new_typedef(char *name, type_t *type);
 type_t *type_new_enum(char *name);
+type_t *type_new_stub();
 void type_free(type_t *t);
 type_t *type_find(parse_t *parse, char *name);
 void type_add(parse_t *parse, char *name, type_t *type);
