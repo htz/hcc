@@ -120,6 +120,7 @@ static void emit_string_data(string_t *str) {
 static void emit_global_variable(parse_t *parse, node_t *node) {
   switch (node->type->kind) {
   case TYPE_KIND_ARRAY:
+  case TYPE_KIND_FUNCTION:
     assert(node->type->parent != NULL);
     emitf("lea %s(%%rip), %%rax", node->vname);
     break;
@@ -942,7 +943,15 @@ static void emit_call(parse_t *parse, node_t *node) {
   }
   // call function
   emitf("mov $%d, %%eax", xargs->size);
-  emitf("call %s", node->func->identifier);
+  if (node->func->kind == NODE_KIND_IDENTIFIER) {
+    emitf("call %s", node->func->identifier);
+  } else if (node->func->kind == NODE_KIND_VARIABLE) {
+    emitf("call %s", node->func->vname);
+  } else {
+    assert(node->func->kind == NODE_KIND_UNARY_OP && node->func->op == '*');
+    emit_expression(parse, node->func->operand);
+    emitf("call *%%rax");
+  }
   // restore registers
   int rsize = padding;
   for (int i = 0; i < rargtypes->size; i++) {

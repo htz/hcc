@@ -75,10 +75,24 @@ void test_typedef() {
   }
 }
 
+int add(int x, int y) {
+  return x + y;
+}
+
+void test_func() {
+  int (*calc1[1])(int,int) = {add};
+  expect(3, (*calc1[0])(1, 2));
+
+  typedef int (*func)(int,int);
+  func calc2[1] = {add};
+  expect(3, (*calc2[0])(1, 2));
+}
+
 void testmain() {
   test_type();
   test_signed();
   test_unsigned();
   test_pointer();
   test_typedef();
+  test_func();
 }
