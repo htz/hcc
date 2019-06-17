@@ -614,11 +614,32 @@ static type_t *direct_declarator_tail(parse_t *parse, type_t *type, vector_t **a
   return type;
 }
 
+static type_t *join_stub_type(parse_t *parse, type_t *base, type_t *stub) {
+  if (stub->kind == TYPE_KIND_STUB) {
+    return base;
+  }
+  base = join_stub_type(parse, base, stub->parent);
+  if (stub->kind == TYPE_KIND_ARRAY) {
+    return type_make_array(parse, base, stub->size);
+  }
+  if (stub->kind == TYPE_KIND_PTR) {
+    return type_get_ptr(parse, base);
+  }
+  if (type_is_function(stub)) {
+    return type_get_function(parse, base, stub->argtypes);
+  }
+  errorf("internal error");
+}
+
 static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp) {
   if (lex_next_keyword_is(parse->lex, '(')) {
-    type = declarator(parse, type, namep, argsp);
+    type_t *stub = type_new_stub();
+    type_t *tmp = declarator(parse, stub, namep, argsp);
     lex_expect_keyword_is(parse->lex, ')');
-    return direct_declarator_tail(parse, type, argsp);
+    type = direct_declarator_tail(parse, type, argsp);
+    type = join_stub_type(parse, type, tmp);
+    type_free(stub);
+    return type;
   }
 
   if (namep) {

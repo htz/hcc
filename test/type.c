@@ -44,8 +44,8 @@ void test_pointer() {
   expect(8, sizeof(a));
   int *b[5];
   expect(40, sizeof(b));
-  // int (*c)[5];
-  // expect(8, sizeof(c));
+  int (*c)[5];
+  expect(8, sizeof(c));
 }
 
 void test_typedef() {

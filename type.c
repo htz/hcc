@@ -103,6 +103,15 @@ type_t *type_new_enum(char *name) {
   return t;
 }
 
+type_t *type_new_stub() {
+  type_t *t = type_new(NULL, TYPE_KIND_STUB, false, NULL);
+  string_t *name = string_new();
+  string_appendf(name, "$stub%p", t);
+  t->name = strdup(name->buf);
+  string_free(name);
+  return t;
+}
+
 void type_free(type_t *t) {
   if (t->name != NULL) {
     free(t->name);
