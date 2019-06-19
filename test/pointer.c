@@ -1,6 +1,6 @@
 void expect(int a, int b);
 
-void test_basic() {
+static void test_basic() {
   int a = 61;
   int *p = &a;
   expect(61, *p);
@@ -13,12 +13,12 @@ void test_basic() {
 }
 
 int g = 62;
-void test_global() {
+static void test_global() {
   int *p = &g;
   expect(62, *p);
 }
 
-void test_char() {
+static void test_char() {
   {
     signed char a[3] = {0xa0, 0xa1, 0xa2};
     signed char *p = a;
@@ -35,7 +35,7 @@ void test_char() {
   }
 }
 
-void test_short() {
+static void test_short() {
   {
     short a[3] = {0xabc0, 0xabc1, 0xabc2};
     short *p = a;
@@ -52,7 +52,7 @@ void test_short() {
   }
 }
 
-void test_int() {
+static void test_int() {
   {
     int a[3] = {0xabcdef10, 0xabcdef11, 0xabcdef12};
     int *p = a;
@@ -69,7 +69,7 @@ void test_int() {
   }
 }
 
-void test_long() {
+static void test_long() {
   {
     long a[3] = {0xfedcba9876543210L, 0xfedcba9876543211L, 0xfedcba9876543212L};
     long *p = a;
@@ -86,7 +86,7 @@ void test_long() {
   }
 }
 
-void test_llong() {
+static void test_llong() {
   {
     long long a[3] = {0xfedcba9876543210LL, 0xfedcba9876543211LL, 0xfedcba9876543212LL};
     long long *p = a;

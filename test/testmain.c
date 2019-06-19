@@ -4,6 +4,10 @@
 
 extern void testmain(void);
 
+// For test/type.c
+int externvar1 = 123;
+int externvar2 = 456;
+
 void expect(int a, int b) {
   if (a == b) {
     return;

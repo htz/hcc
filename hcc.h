@@ -127,6 +127,8 @@ enum {
   TOKEN_KEYWORD_DEFAULT,
   TOKEN_KEYWORD_GOTO,
   TOKEN_KEYWORD_TYPEDEF,
+  TOKEN_KEYWORD_STATIC,
+  TOKEN_KEYWORD_EXTERN,
   OP_SAL,    // <<
   OP_SAR,    // >>
   OP_EQ,     // ==
@@ -205,6 +207,8 @@ enum {
 enum {
   STORAGE_CLASS_NONE,
   STORAGE_CLASS_TYPEDEF,
+  STORAGE_CLASS_STATIC,
+  STORAGE_CLASS_EXTERN,
 };
 
 typedef struct node node_t;
@@ -231,6 +235,7 @@ struct node {
     struct {
       char *vname;
       bool global;
+      int sclass;
       int voffset;
     };
     // Binary/Unary operator
@@ -422,7 +427,7 @@ node_t *node_new_int(parse_t *parse, type_t *type, long ival);
 node_t *node_new_float(parse_t *parse, type_t *type, double fval, int fid);
 node_t *node_new_string(parse_t *parse, string_t *sval, int sid);
 node_t *node_new_init_list(parse_t *parse, type_t *type, vector_t *init);
-node_t *node_new_variable(parse_t *parse, type_t *type, char *vname, bool global);
+node_t *node_new_variable(parse_t *parse, type_t *type, char *vname, int sclass, bool global);
 node_t *node_new_declaration(parse_t *parse, type_t *type, node_t *var, node_t *init);
 node_t *node_new_binary_op(parse_t *parse, type_t *type, int op, node_t *left, node_t *right);
 node_t *node_new_unary_op(parse_t *parse, type_t *type, int op, node_t *operand);

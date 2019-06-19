@@ -1,6 +1,6 @@
 void expect(int a, int b);
 
-void test_basic() {
+static void test_basic() {
   expect(3, 1 + 2);
   expect(3, 1 - -2);
   expect(10, 1 + 2 + 3 + 4);
@@ -19,7 +19,7 @@ void test_basic() {
   expect(-2, -2);
 }
 
-void test_inc_dec() {
+static void test_inc_dec() {
   int a = 15;
   expect(15, a++);
   expect(16, a);
@@ -27,7 +27,7 @@ void test_inc_dec() {
   expect(15, a);
 }
 
-void test_logical() {
+static void test_logical() {
   expect(0, !1);
   expect(1 ,!0);
   expect(-11 ,~10);
@@ -41,14 +41,14 @@ void test_logical() {
   expect(0, 0 || 0);
 }
 
-void test_ternary() {
+static void test_ternary() {
   expect(51, (1 + 2) ? 51 : 52);
   expect(52, (1 - 1) ? 51 : 52);
   expect(26, (1 - 1) ? 51 : 52 / 2);
   expect(17, (1 - 0) ? 51 / 3 : 52);
 }
 
-void test_comp() {
+static void test_comp() {
   expect(0, 1 == 2);
   expect(1, 1 == 1);
   expect(0, 2 == 1);
@@ -81,7 +81,7 @@ void test_comp() {
   expect(1, 1 >= -1);
 }
 
-void test_assign() {
+static void test_assign() {
   int a1 = 1;
   a1 += 10;
   expect(11, a1);

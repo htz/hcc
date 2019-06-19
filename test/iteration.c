@@ -1,12 +1,12 @@
 void expect(int a, int b);
 
-void test_while() {
+static void test_while() {
   int i = 0;
   while (i < 100) i++;
   expect(100, i);
 }
 
-void test_do_while() {
+static void test_do_while() {
   int i = 0;
   do {
     i++;
@@ -14,7 +14,7 @@ void test_do_while() {
   expect(100, i);
 }
 
-void test_for() {
+static void test_for() {
   int i;
   for (i = 0; i < 100; i++) {
     i++;
@@ -22,7 +22,7 @@ void test_for() {
   expect(100, i);
 }
 
-void test_break() {
+static void test_break() {
   int i = 0;
   while (i < 100) {
     i++;
@@ -31,7 +31,7 @@ void test_break() {
   expect(1, i);
 }
 
-void test_continue() {
+static void test_continue() {
   int i;
   int ans[10], count = 0;
   for (i = 0; i < 10; i++){

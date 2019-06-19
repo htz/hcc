@@ -1,7 +1,7 @@
 void expect(int a, int b);
 
-int a = 1;
-void test_basic() {
+static int a = 1;
+static void test_basic() {
   expect(1, a);
   {
     expect(1, a);

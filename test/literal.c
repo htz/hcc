@@ -3,7 +3,7 @@ void expect_string(char *a, char *b);
 void expect_float(float a, float b);
 void expect_double(double a, double b);
 
-void test_char_literal() {
+static void test_char_literal() {
   expect(65, 'A');
   expect(97, 'a');
   expect(7, '\a');
@@ -15,7 +15,7 @@ void test_char_literal() {
   expect(11, '\v');
 }
 
-void test_int_literal() {
+static void test_int_literal() {
   expect(0, 0);
   expect(0, 0u);
   expect(0, 0l);
@@ -28,19 +28,19 @@ void test_int_literal() {
   expect(15, 017);
 }
 
-void test_string_literal() {
+static void test_string_literal() {
   expect_string("abc", "abc");
   expect('a', "abc"[0]);
   expect(0, "abc"[3]);
 }
 
-void test_float_literal() {
+static void test_float_literal() {
   expect_float(1.25f, 1.25f);
   expect_double(2.25, 2.25);
   expect_double(0.123, .123);
 }
 
-void test_unsigned() {
+static void test_unsigned() {
   int s1 = 1, s2 = 2, sm1 = -1;
   unsigned int u1 = 1, u2 = 2, um1 = -1;
 
@@ -80,7 +80,7 @@ void test_unsigned() {
   expect(0, s1 >= um1);
 }
 
-void test_char_limit() {
+static void test_char_limit() {
   char s1 = 0x7f, s2 = 0xff;
   expect(1, s1 >= 0);
   expect(0, s2 > 0);
@@ -98,7 +98,7 @@ void test_char_limit() {
   expect(1, u2 == 0);
 }
 
-void test_short_limit() {
+static void test_short_limit() {
   short s1 = 0x7fff, s2 = 0xffff;
   expect(1, s1 >= 0);
   expect(0, s2 > 0);
@@ -116,7 +116,7 @@ void test_short_limit() {
   expect(1, u2 == 0);
 }
 
-void test_int_limit() {
+static void test_int_limit() {
   int s1 = 0x7fffffff, s2 = 0xffffffff;
   expect(1, s1 >= 0);
   expect(0, s2 > 0);
@@ -134,7 +134,7 @@ void test_int_limit() {
   expect(1, u2 == 0);
 }
 
-void test_long_limit() {
+static void test_long_limit() {
   long s1 = 0x7fffffffffffffffL, s2 = 0xffffffffffffffffL;
   expect(1, s1 >= 0);
   expect(0, s2 > 0);
@@ -152,7 +152,7 @@ void test_long_limit() {
   expect(1, u2 == 0);
 }
 
-void test_llong_limit() {
+static void test_llong_limit() {
   long long s1 = 0x7fffffffffffffffLL, s2 = 0xffffffffffffffffLL;
   expect(1, s1 >= 0);
   expect(0, s2 > 0);
