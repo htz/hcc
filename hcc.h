@@ -74,6 +74,7 @@ struct type {
   char *name;
   int kind;
   bool sign;
+  bool is_const;
   type_t *parent;
   int bytes;
   int size;
@@ -129,6 +130,7 @@ enum {
   TOKEN_KEYWORD_TYPEDEF,
   TOKEN_KEYWORD_STATIC,
   TOKEN_KEYWORD_EXTERN,
+  TOKEN_KEYWORD_CONST,
   OP_SAL,    // <<
   OP_SAR,    // >>
   OP_EQ,     // ==
@@ -384,6 +386,7 @@ type_t *type_new(char *name, int kind, int sign, type_t *ptr);
 type_t *type_new_struct(char *name, bool is_struct);
 type_t *type_new_typedef(char *name, type_t *type);
 type_t *type_new_enum(char *name);
+type_t *type_new_const(type_t *type);
 type_t *type_new_stub();
 void type_free(type_t *t);
 type_t *type_find(parse_t *parse, char *name);
@@ -391,6 +394,7 @@ void type_add(parse_t *parse, char *name, type_t *type);
 type_t *type_get(parse_t *parse, char *name, type_t *parent);
 type_t *type_get_ptr(parse_t *parse, type_t *type);
 type_t *type_get_function(parse_t *parse, type_t *rettype, vector_t *argtypes);
+type_t *type_get_const(parse_t *parse, type_t *type);
 void type_add_by_tag(parse_t *parse, char *tag, type_t *type);
 type_t *type_get_by_tag(parse_t *parse, char *tag, bool local_only);
 void type_add_typedef(parse_t *parse, char *name, type_t *type);

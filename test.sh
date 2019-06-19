@@ -131,5 +131,8 @@ testfail 'void f(){1.0f<<1.0;}'
 testfail 'void f(){1.0f<<1.0f;}'
 testfail 'void f(){1<<1.0;}'
 testfail 'void f(){1<<1.0f;}'
+testfail 'void f(){const int a;a=0;}'
+testfail 'void f(){int a;const int *p=&a;*p=0;}'
+testfail 'void f(){struct{const int x;}a;a.x=0;}'
 
 echo "All tests passed"

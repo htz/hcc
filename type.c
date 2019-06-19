@@ -103,6 +103,20 @@ type_t *type_new_enum(char *name) {
   return t;
 }
 
+type_t *type_new_const(type_t *type) {
+  if (type->is_const) {
+    return type;
+  }
+  string_t *name = string_new();
+  string_appendf(name, "const %s", type->name);
+  type_t *t = (type_t *)malloc(sizeof (type_t));
+  memcpy(t, type, sizeof(type_t));
+  t->name = strdup(name->buf);
+  t->is_const = true;
+  string_free(name);
+  return t;
+}
+
 type_t *type_new_stub() {
   type_t *t = type_new(NULL, TYPE_KIND_STUB, false, NULL);
   string_t *name = string_new();
@@ -187,6 +201,21 @@ type_t *type_get_function(parse_t *parse, type_t *rettype, vector_t *argtypes) {
   }
   string_free(name);
   return type;
+}
+
+type_t *type_get_const(parse_t *parse, type_t *type) {
+  if (type->is_const) {
+    return type;
+  }
+  string_t *name = string_new();
+  string_appendf(name, "const %s", type->name);
+  type_t *t = (type_t *)map_get(parse->types, name->buf);
+  if (t == NULL) {
+    t = type_new_const(type);
+    map_add(parse->types, name->buf, t);
+  }
+  string_free(name);
+  return t;
 }
 
 void type_add_by_tag(parse_t *parse, char *tag, type_t *type) {
