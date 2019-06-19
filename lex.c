@@ -357,6 +357,9 @@ retry:
     if (strcmp("extern", token->identifier) == 0) {
       return new_keyword(lex, TOKEN_KEYWORD_EXTERN);
     }
+    if (strcmp("const", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_CONST);
+    }
     return token;
   }
   switch (c) {

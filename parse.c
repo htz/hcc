@@ -93,53 +93,81 @@ static type_t *op_result(parse_t *parse, int op, type_t *left, type_t *right) {
   }
   type_t *type = NULL;
   if (left->kind == right->kind) {
-    assert(left->sign != right->sign);
     if (left->sign) {
       type = right;
     } else {
       type = left;
     }
-  }
-  switch (left->kind) {
-  case TYPE_KIND_BOOL:
-  case TYPE_KIND_CHAR:
-  case TYPE_KIND_SHORT:
-  case TYPE_KIND_INT:
-  case TYPE_KIND_LONG:
-  case TYPE_KIND_LLONG:
-    switch (right->kind) {
+  } else {
+    switch (left->kind) {
+    case TYPE_KIND_BOOL:
+    case TYPE_KIND_CHAR:
     case TYPE_KIND_SHORT:
-      if (left->sign != right->sign) {
-        type = parse->type_ushort;
-      } else {
-        type = right;
-      }
-      break;
     case TYPE_KIND_INT:
-      if (left->sign != right->sign) {
-        type = parse->type_uint;
-      } else {
-        type = right;
-      }
-      break;
     case TYPE_KIND_LONG:
-      if (left->sign != right->sign) {
-        type = parse->type_ulong;
-      } else {
-        type = right;
-      }
-      break;
     case TYPE_KIND_LLONG:
-      if (left->sign != right->sign) {
-        type = parse->type_ullong;
-      } else {
+      switch (right->kind) {
+      case TYPE_KIND_SHORT:
+        if (left->sign != right->sign) {
+          type = parse->type_ushort;
+        } else {
+          type = right;
+        }
+        break;
+      case TYPE_KIND_INT:
+        if (left->sign != right->sign) {
+          type = parse->type_uint;
+        } else {
+          type = right;
+        }
+        break;
+      case TYPE_KIND_LONG:
+        if (left->sign != right->sign) {
+          type = parse->type_ulong;
+        } else {
+          type = right;
+        }
+        break;
+      case TYPE_KIND_LLONG:
+        if (left->sign != right->sign) {
+          type = parse->type_ullong;
+        } else {
+          type = right;
+        }
+        break;
+      case TYPE_KIND_FLOAT:
+      case TYPE_KIND_DOUBLE:
         type = right;
+        break;
+      case TYPE_KIND_PTR:
+      case TYPE_KIND_ARRAY:
+        if (
+          op != '+' && op != ('+' | OP_ASSIGN_MASK) &&
+          op != '-' && op != ('-' | OP_ASSIGN_MASK) &&
+          op != '='
+        ) {
+          errorf("invalid operands to binary %c", op);
+        }
+        type = right;
+        break;
+      default:
+        errorf("unknown type: %s", right->name);
       }
       break;
     case TYPE_KIND_FLOAT:
     case TYPE_KIND_DOUBLE:
     case TYPE_KIND_LDOUBLE:
-      type = right;
+      switch (right->kind) {
+      case TYPE_KIND_FLOAT:
+      case TYPE_KIND_DOUBLE:
+      case TYPE_KIND_LDOUBLE:
+        if (left->kind == TYPE_KIND_DOUBLE || left->kind == TYPE_KIND_LDOUBLE) {
+          type = left;
+        } else {
+          type = right;
+        }
+        break;
+      }
       break;
     case TYPE_KIND_PTR:
     case TYPE_KIND_ARRAY:
@@ -152,37 +180,31 @@ static type_t *op_result(parse_t *parse, int op, type_t *left, type_t *right) {
       }
       type = right;
       break;
-    default:
-      errorf("unknown type: %s", right->name);
     }
-    break;
-  case TYPE_KIND_FLOAT:
-  case TYPE_KIND_DOUBLE:
-  case TYPE_KIND_LDOUBLE:
-    switch (right->kind) {
-    case TYPE_KIND_FLOAT:
-    case TYPE_KIND_DOUBLE:
-    case TYPE_KIND_LDOUBLE:
-      if (left->kind == TYPE_KIND_DOUBLE || left->kind == TYPE_KIND_LDOUBLE) {
-        type = left;
-      } else {
-        type = right;
-      }
-      break;
-    }
-    break;
-  case TYPE_KIND_PTR:
-  case TYPE_KIND_ARRAY:
-    if (op != '+' && op != '-') {
-      errorf("invalid operands to binary %c", op);
-    }
-    type = right;
-    break;
   }
   if (type == NULL) {
     errorf("invalid operands to binary expression ('%s' and '%s')", left->name, right->name);
   }
+  if (left->is_const || right->is_const) {
+    type = type_get_const(parse, type);
+  }
   return type;
+}
+
+static void ensure_assignable(parse_t *parse, node_t *node, type_t *type) {
+  if (!type_is_assignable(node->type, type)) {
+    errorf("assigning to '%s' from incompatible type '%s'", node->type->name, type->name);
+  }
+  if (!node->type->is_const) {
+    return;
+  }
+  if (node->kind == NODE_KIND_VARIABLE) {
+    errorf("cannot assign to variable '%s' with const-qualified type '%s'", node->vname, type->name);
+  }
+  if (node->kind == NODE_KIND_BINARY_OP && node->op == '.') {
+    errorf("cannot assign to non-static data member '%s' with const-qualified type '%s'", node->right->vname, type->name);
+  }
+  errorf("read-only variable is not assignable");
 }
 
 static node_t *external_declaration(parse_t *parse) {
@@ -351,6 +373,7 @@ static type_t *select_type(parse_t *parse, type_t *type, int kind, int sign, int
 static type_t *declaration_specifier(parse_t *parse, int *sclassp) {
   int kind = -1, sign = -1, size = -1;
   type_t *type = NULL;
+  bool is_const = false;
   token_t *token = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
   if (token != NULL) {
     lex_unget_token(parse->lex, token);
@@ -386,6 +409,12 @@ static type_t *declaration_specifier(parse_t *parse, int *sclassp) {
           errorf("multiple storage classes in declaration specifiers");
         }
         *sclassp = STORAGE_CLASS_EXTERN;
+        continue;
+      } else if (token->keyword == TOKEN_KEYWORD_CONST) {
+        if (is_const) {
+          warnf("duplicate 'const' declaration specifier");
+        }
+        is_const = true;
         continue;
       } else if (token->keyword == TOKEN_KEYWORD_SIGNED) {
         sign = 1;
@@ -439,7 +468,11 @@ static type_t *declaration_specifier(parse_t *parse, int *sclassp) {
     lex_unget_token(parse->lex, token);
     break;
   }
-  return select_type(parse, type, kind, sign, size);
+  type = select_type(parse, type, kind, sign, size);
+  if (is_const) {
+    type = type_get_const(parse, type);
+  }
+  return type;
 }
 
 static type_t *make_empty_struct_type(parse_t *parse, token_t *tag, bool is_struct) {
@@ -1069,6 +1102,7 @@ static node_t *unary_expression(parse_t *parse) {
   if (lex_next_keyword_is(parse->lex, OP_INC)) {
     node_t *node = unary_expression(parse);
     if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
+      ensure_assignable(parse, node, node->type);
       return node_new_unary_op(parse, node->type, OP_INC, node);
     } else {
       errorf("expression is not assignable");
@@ -1076,6 +1110,7 @@ static node_t *unary_expression(parse_t *parse) {
   } else if (lex_next_keyword_is(parse->lex, OP_DEC)) {
     node_t *node = unary_expression(parse);
     if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
+      ensure_assignable(parse, node, node->type);
       return node_new_unary_op(parse, node->type, OP_DEC, node);
     } else {
       errorf("expression is not assignable");
@@ -1236,12 +1271,14 @@ static node_t *postfix_expression(parse_t *parse) {
       node = node_new_binary_op(parse, var->type, '.', node, var);
     } else if (lex_next_keyword_is(parse->lex, OP_INC)) {
       if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
+        ensure_assignable(parse, node, node->type);
         node = node_new_unary_op(parse, node->type, OP_PINC, node);
       } else {
         errorf("expression is not assignable");
       }
     } else if (lex_next_keyword_is(parse->lex, OP_DEC)) {
       if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
+        ensure_assignable(parse, node, node->type);
         node = node_new_unary_op(parse, node->type, OP_PDEC, node);
       } else {
         errorf("expression is not assignable");
@@ -1363,6 +1400,7 @@ static node_t *assignment_expression(parse_t *parse) {
     if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
       node_t *right = assignment_expression(parse);
       type_t *type = op_result(parse, op, node->type, right->type);
+      ensure_assignable(parse, node, type);
       node = node_new_binary_op(parse, type, op, node, right);
     } else {
       errorf("expression is not assignable");
