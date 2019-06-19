@@ -351,6 +351,12 @@ retry:
     if (strcmp("typedef", token->identifier) == 0) {
       return new_keyword(lex, TOKEN_KEYWORD_TYPEDEF);
     }
+    if (strcmp("static", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_STATIC);
+    }
+    if (strcmp("extern", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_EXTERN);
+    }
     return token;
   }
   switch (c) {

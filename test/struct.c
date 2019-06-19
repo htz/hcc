@@ -1,6 +1,6 @@
 void expect(int a, int b);
 
-void test_basic_struct() {
+static void test_basic_struct() {
   struct {
     signed char c;
     short s;
@@ -46,7 +46,7 @@ void test_basic_struct() {
   expect(5, a4.y);
 }
 
-void test_basic_union() {
+static void test_basic_union() {
   union {
     int a;
     int b;
@@ -65,7 +65,7 @@ void test_basic_union() {
   expect(256, b2.b);
 }
 
-void test_nested() {
+static void test_nested() {
   struct {
     int a;
     struct {
@@ -97,7 +97,7 @@ void test_nested() {
   expect(6, b1.c);
 }
 
-void test_pointer() {
+static void test_pointer() {
   struct Tag2 {
     int a;
   } x;
@@ -119,7 +119,7 @@ struct GS {
   } y;
 } gs;
 
-void test_global_struct() {
+static void test_global_struct() {
   gs.a = 1;
   gs.y.b = 2;
   gs.y.c = 3;
@@ -150,7 +150,7 @@ union GU {
   int b;
 } gu;
 
-void test_global_union() {
+static void test_global_union() {
   gu.b = 0;
   gu.a[1] = 1;
   expect(256, gu.b);
@@ -161,7 +161,7 @@ void test_global_union() {
   expect(256, a.b);
 }
 
-void test_mix() {
+static void test_mix() {
   union {
     unsigned long long l;
     struct {
@@ -195,7 +195,7 @@ struct Tag {
   int x;
 };
 
-void test_scope() {
+static void test_scope() {
   struct Tag a;
   a.x = 0;
   struct Tag {
@@ -218,7 +218,7 @@ void test_scope() {
   }
 }
 
-void test_init() {
+static void test_init() {
   struct {
     char c;
     short s;
@@ -258,7 +258,7 @@ void test_init() {
   expect(7, a2.z);
 }
 
-void test_call_func(struct GS a) {
+static void test_call_func(struct GS a) {
   expect(1, a.a);
   expect(2, a.y.b);
   expect(3, a.y.c);
@@ -267,7 +267,7 @@ void test_call_func(struct GS a) {
   a.y.c = 0;
 }
 
-void test_call() {
+static void test_call() {
   struct GS a;
   a.a = 1;
   a.y.b = 2;
@@ -286,7 +286,7 @@ void test_call() {
   expect(3, gs.y.c);
 }
 
-void test_assign() {
+static void test_assign() {
   struct GS a, b;
   a.a = 1;
   a.y.b = 2;

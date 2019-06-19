@@ -1187,8 +1187,11 @@ static int placement_variables(node_t *node, int offset) {
 static void emit_function(parse_t *parse, node_t *node) {
   parse->stackpos = 8;
   emitf(".text");
-  emitf_noindent(".global %s", node->fvar->vname);
-  emitf_noindent("%s:", node->fvar->vname);
+  node_t *var = node->fvar;
+  if (var->sclass != STORAGE_CLASS_STATIC) {
+    emitf_noindent(".global %s", var->vname);
+  }
+  emitf_noindent("%s:", var->vname);
   emit_push(parse, "rbp");
   emitf("mov %%rsp, %%rbp");
 
@@ -1319,7 +1322,13 @@ static void emit_global_data_array(parse_t *parse, type_t *type, node_t *val) {
 }
 
 static void emit_global(parse_t *parse, node_t *node) {
-  emitf_noindent(".global %s", node->dec_var->vname);
+  node_t *var = node->dec_var;
+  if (var->sclass == STORAGE_CLASS_EXTERN) {
+    return;
+  }
+  if (var->sclass != STORAGE_CLASS_STATIC) {
+    emitf_noindent(".global %s", node->dec_var->vname);
+  }
   emitf_noindent("%s:", node->dec_var->vname);
   if (node->type->kind == TYPE_KIND_ARRAY) {
     emit_global_data_array(parse, node->type, node->dec_init);

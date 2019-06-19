@@ -1,6 +1,6 @@
 void expect(int a, int b);
 
-void test_basic() {
+static void test_basic() {
   enum {
     a = 1,
     b,
@@ -23,7 +23,7 @@ enum GE {
   z = 123
 };
 
-void test_global() {
+static void test_global() {
   enum GE x = z;
   expect(124, x + 1);
 }

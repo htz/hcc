@@ -1,6 +1,6 @@
 void expect(int a, int b);
 
-void test_type() {
+static void test_type() {
   char a;
   short b;
   int c;
@@ -17,7 +17,7 @@ void test_type() {
   bool n;
 }
 
-void test_signed() {
+static void test_signed() {
   signed char a;
   signed short b;
   signed int c;
@@ -28,7 +28,7 @@ void test_signed() {
   signed long long int h;
 }
 
-void test_unsigned() {
+static void test_unsigned() {
   unsigned char a;
   unsigned short b;
   unsigned int c;
@@ -39,7 +39,7 @@ void test_unsigned() {
   unsigned long long int h;
 }
 
-void test_pointer() {
+static void test_pointer() {
   int *a;
   expect(8, sizeof(a));
   int *b[5];
@@ -48,7 +48,7 @@ void test_pointer() {
   expect(8, sizeof(c));
 }
 
-void test_typedef() {
+static void test_typedef() {
   typedef int integer;
   integer a = 5;
   expect(5, a);
@@ -75,17 +75,25 @@ void test_typedef() {
   }
 }
 
-int add(int x, int y) {
+static int add(int x, int y) {
   return x + y;
 }
 
-void test_func() {
+static void test_func() {
   int (*calc1[1])(int,int) = {add};
   expect(3, (*calc1[0])(1, 2));
 
   typedef int (*func)(int,int);
   func calc2[1] = {add};
   expect(3, (*calc2[0])(1, 2));
+}
+
+extern int externvar1;
+int extern externvar2;
+
+static void test_extern() {
+  expect(123, externvar1);
+  expect(456, externvar2);
 }
 
 void testmain() {

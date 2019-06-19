@@ -1,6 +1,6 @@
 void expect(int a, int b);
 
-void test_basic() {
+static void test_basic() {
   int a1[1] = {55};
   int *p1 = a1;
   expect(55, *p1);
@@ -20,23 +20,23 @@ void test_basic() {
   expect(60, *a4 + *(a4 + 1) + *(a4 + 2));
 }
 
-void test_char_array() {
+static void test_char_array() {
   char s[4] = "abc";
   char *c = s + 2;
   expect(99, *c);
 }
 
-void test_load() {
+static void test_load() {
   int a[5] = {1, 2, 3, 4, 5};
   expect(15, a[0] + a[1] + a[2] + a[3] + a[4]);
 }
 
-void test_load_two_dimensional_array() {
+static void test_load_two_dimensional_array() {
   int a[2][3] = {{0, 1, 2}, {3, 4, 5}};
   expect(15, a[0][0] + a[0][1] + a[0][2] + a[1][0] + a[1][1] + a[1][2]);
 }
 
-void test_save_two_dimensional_array() {
+static void test_save_two_dimensional_array() {
   int a[2][3];
   a[0][1] = 1;
   a[1][1] = 2;
@@ -48,7 +48,7 @@ void test_save_two_dimensional_array() {
 int g1[3];
 int g2[3] = {1, 2, 3};
 
-void test_global() {
+static void test_global() {
   g1[0] = 1;
   g1[1] = 2;
   g1[2] = 3;
@@ -60,7 +60,7 @@ void test_global() {
   expect(3, g2[2]);
 }
 
-void test_constant_size() {
+static void test_constant_size() {
   int a[(0 + 1 * 2 + 4 / 2 ^ 3 & ~1 % 5) << 2];
   expect(96, sizeof(a));
 }

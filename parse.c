@@ -13,7 +13,7 @@ static type_t *struct_or_union_specifier(parse_t *parse, bool is_struct);
 static void struct_declaration(parse_t *parse, type_t *type, type_t *field_type);
 static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type);
 static type_t *declarator_array(parse_t *parse, type_t *type);
-static node_t *variable_declarator(parse_t *parse, type_t *type, vector_t **argsp);
+static node_t *variable_declarator(parse_t *parse, type_t *type, int sclass, vector_t **argsp);
 static type_t *declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp);
 static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp);
 static node_t *eval_constant_expression(parse_t *parse, node_t *node);
@@ -41,7 +41,7 @@ static type_t *abstract_declarator(parse_t *parse, type_t *type);
 static type_t *enum_specifier(parse_t *parse);
 static void enumerator_list(parse_t *parse, type_t *type);
 static int enumerator(parse_t *parse, type_t *type, int n);
-static node_t *declaration(parse_t *parse, type_t *type);
+static node_t *declaration(parse_t *parse, type_t *type, int sclass);
 static node_t *init_declarator(parse_t *parse, node_t *var);
 static node_t *initializer(parse_t *parse, type_t *type);
 static node_t *compound_statement(parse_t *parse);
@@ -193,7 +193,7 @@ static node_t *external_declaration(parse_t *parse) {
   }
   if (sclass == STORAGE_CLASS_TYPEDEF) {
     for (;;) {
-      node_t *var = variable_declarator(parse, type, NULL);
+      node_t *var = variable_declarator(parse, type, STORAGE_CLASS_NONE, NULL);
       type_add_typedef(parse, var->vname, var->type);
       if (lex_next_keyword_is(parse->lex, ';')) {
         break;
@@ -208,7 +208,7 @@ static node_t *external_declaration(parse_t *parse) {
 
   node_t *node;
   vector_t *args = NULL;
-  node_t *var = variable_declarator(parse, type, &args);
+  node_t *var = variable_declarator(parse, type, sclass, &args);
   if (type_is_function(var->type)) {
     assert(parse->current_scope == NULL);
     node_t *n = find_variable(parse, parse->current_scope, var->vname);
@@ -237,7 +237,7 @@ static node_t *external_declaration(parse_t *parse) {
 
   node_t *prev = node;
   while (lex_next_keyword_is(parse->lex, ',')) {
-    var = variable_declarator(parse, type, NULL);
+    var = variable_declarator(parse, type, sclass, NULL);
     if (type_is_function(var->type)) {
       node_t *n = find_variable(parse, parse->current_scope, var->vname);
       if (n == NULL) {
@@ -267,7 +267,7 @@ static node_t *function_definition(parse_t *parse, node_t *var, vector_t *args) 
   for (int i = 0; i < args->size; i++) {
     char *name = (char *)args->data[i];
     type_t *t = (type_t *)var->type->argtypes->data[i];
-    node_t *arg = node_new_variable(parse, t, name, false);
+    node_t *arg = node_new_variable(parse, t, name, STORAGE_CLASS_NONE, false);
     if (name != NULL) {
       add_var(parse, arg);
     }
@@ -368,6 +368,24 @@ static type_t *declaration_specifier(parse_t *parse, int *sclassp) {
           errorf("multiple storage classes in declaration specifiers");
         }
         *sclassp = STORAGE_CLASS_TYPEDEF;
+        continue;
+      } else if (token->keyword == TOKEN_KEYWORD_STATIC) {
+        if (sclassp == NULL) {
+          errorf("expected expression");
+        }
+        if (*sclassp != STORAGE_CLASS_NONE) {
+          errorf("multiple storage classes in declaration specifiers");
+        }
+        *sclassp = STORAGE_CLASS_STATIC;
+        continue;
+      } else if (token->keyword == TOKEN_KEYWORD_EXTERN) {
+        if (sclassp == NULL) {
+          errorf("expected expression");
+        }
+        if (*sclassp != STORAGE_CLASS_NONE) {
+          errorf("multiple storage classes in declaration specifiers");
+        }
+        *sclassp = STORAGE_CLASS_EXTERN;
         continue;
       } else if (token->keyword == TOKEN_KEYWORD_SIGNED) {
         sign = 1;
@@ -497,7 +515,7 @@ static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type) 
       if (map_find(type->fields, field->vname) != NULL) {
         errorf("duplicate member: %s", field->vname);
       }
-      node_t *node = node_new_variable(parse, field->type, field->vname, false);
+      node_t *node = node_new_variable(parse, field->type, field->vname, STORAGE_CLASS_NONE, false);
       if (type->is_struct) {
         align(&type->total_size, field->type->align);
         node->voffset = type->total_size;
@@ -525,7 +543,7 @@ static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type) 
   if (map_find(type->fields, name) != NULL) {
     errorf("duplicate member: %s", name);
   }
-  node_t *node = node_new_variable(parse, field_type, name, false);
+  node_t *node = node_new_variable(parse, field_type, name, STORAGE_CLASS_NONE, false);
   if (type->is_struct) {
     align(&type->total_size, field_type->align);
     node->voffset = type->total_size;
@@ -550,13 +568,13 @@ static type_t *declarator_array(parse_t *parse, type_t *type) {
   return type;
 }
 
-static node_t *variable_declarator(parse_t *parse, type_t *type, vector_t **argsp) {
+static node_t *variable_declarator(parse_t *parse, type_t *type, int sclass, vector_t **argsp) {
   char *name;
   type = declarator(parse, type, &name, argsp);
   if (parse->current_function) {
-    return node_new_variable(parse, type, name, false);
+    return node_new_variable(parse, type, name, sclass, false);
   }
-  return node_new_variable(parse, type, name, true);
+  return node_new_variable(parse, type, name, sclass, true);
 }
 
 static type_t *declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp) {
@@ -586,7 +604,7 @@ static type_t *direct_declarator_tail(parse_t *parse, type_t *type, vector_t **a
       if (args->size > 0) {
         lex_expect_keyword_is(parse->lex, ',');
       }
-      int sclass = -1;
+      int sclass = STORAGE_CLASS_NONE;
       char *name = NULL;
       type_t *t = declaration_specifier(parse, &sclass);
       t = declarator(parse, t, &name, NULL);
@@ -597,7 +615,7 @@ static type_t *direct_declarator_tail(parse_t *parse, type_t *type, vector_t **a
         }
         errorf("void is not allowed");
       }
-      if (sclass == STORAGE_CLASS_TYPEDEF) {
+      if (sclass == STORAGE_CLASS_TYPEDEF || sclass == STORAGE_CLASS_STATIC || sclass == STORAGE_CLASS_EXTERN) {
         errorf("invalid storage class specifier in function declarator");
       }
       vector_push(args, name);
@@ -1442,12 +1460,12 @@ static int enumerator(parse_t *parse, type_t *type, int n) {
   return val->ival;
 }
 
-static node_t *declaration(parse_t *parse, type_t *type) {
-  node_t *var = variable_declarator(parse, type, NULL);
+static node_t *declaration(parse_t *parse, type_t *type, int sclass) {
+  node_t *var = variable_declarator(parse, type, sclass, NULL);
   node_t *node = init_declarator(parse, var);
   node_t *prev = node;
   while (lex_next_keyword_is(parse->lex, ',')) {
-    var = variable_declarator(parse, type, NULL);
+    var = variable_declarator(parse, type, sclass, NULL);
     prev->next = init_declarator(parse, var);
     prev = prev->next;
   }
@@ -1461,6 +1479,9 @@ static node_t *init_declarator(parse_t *parse, node_t *var) {
     errorf("void is not allowed");
   }
   if (lex_next_keyword_is(parse->lex, '=')) {
+    if (var->sclass == STORAGE_CLASS_EXTERN) {
+      warnf("'extern' variable has an initializer");
+    }
     init = initializer(parse, var->type);
   }
   if (var->type->kind == TYPE_KIND_ARRAY && var->type->size < 0) {
@@ -1535,7 +1556,7 @@ static node_t *compound_statement(parse_t *parse) {
     if (type != NULL) {
       if (sclass == STORAGE_CLASS_TYPEDEF) {
         for (;;) {
-          node_t *var = variable_declarator(parse, type, NULL);
+          node_t *var = variable_declarator(parse, type, sclass, NULL);
           type_add_typedef(parse, var->vname, var->type);
           if (lex_next_keyword_is(parse->lex, ';')) {
             break;
@@ -1546,7 +1567,7 @@ static node_t *compound_statement(parse_t *parse) {
       } else if (lex_next_keyword_is(parse->lex, ';')) {
         continue;
       }
-      vector_push(statements, declaration(parse, type));
+      vector_push(statements, declaration(parse, type, sclass));
     } else {
       vector_push(statements, statement(parse));
     }
@@ -1690,7 +1711,7 @@ static node_t *iteration_statement(parse_t *parse, int keyword) {
         if (sclass == STORAGE_CLASS_TYPEDEF) {
           errorf("type name does not allow storage class to be specified");
         }
-        init = declaration(parse, type);
+        init = declaration(parse, type, sclass);
       } else {
         init = expression(parse);
         lex_expect_keyword_is(parse->lex, ';');

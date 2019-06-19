@@ -66,7 +66,7 @@ node_t *node_new_init_list(parse_t *parse, type_t *type, vector_t *init) {
   return node;
 }
 
-node_t *node_new_variable(parse_t *parse, type_t *type, char *vname, bool global) {
+node_t *node_new_variable(parse_t *parse, type_t *type, char *vname, int sclass, bool global) {
   node_t *node = node_new(parse, NODE_KIND_VARIABLE);
   node->type = type;
   if (vname != NULL) {
@@ -75,6 +75,7 @@ node_t *node_new_variable(parse_t *parse, type_t *type, char *vname, bool global
     node->vname = NULL;
   }
   node->voffset = 0;
+  node->sclass = sclass;
   node->global = global;
   return node;
 }
