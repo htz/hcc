@@ -217,14 +217,14 @@ static node_t *external_declaration(parse_t *parse) {
     for (;;) {
       node_t *var = variable_declarator(parse, type, STORAGE_CLASS_NONE, NULL);
       type_add_typedef(parse, var->vname, var->type);
-      if (lex_next_keyword_is(parse->lex, ';')) {
+      if (cpp_next_keyword_is(parse, ';')) {
         break;
       }
-      lex_expect_keyword_is(parse->lex, ',');
+      cpp_expect_keyword_is(parse, ',');
     }
     return node_new_nop(parse);
   }
-  if (lex_next_keyword_is(parse->lex, ';')) {
+  if (cpp_next_keyword_is(parse, ';')) {
     return node_new_nop(parse);
   }
 
@@ -241,7 +241,7 @@ static node_t *external_declaration(parse_t *parse) {
     }
 
     assert(args != NULL);
-    if (lex_next_keyword_is(parse->lex, '{')) {
+    if (cpp_next_keyword_is(parse, '{')) {
       node = function_definition(parse, var, args);
       vector_free(args);
       return node;
@@ -258,7 +258,7 @@ static node_t *external_declaration(parse_t *parse) {
   }
 
   node_t *prev = node;
-  while (lex_next_keyword_is(parse->lex, ',')) {
+  while (cpp_next_keyword_is(parse, ',')) {
     var = variable_declarator(parse, type, sclass, NULL);
     if (type_is_function(var->type)) {
       node_t *n = find_variable(parse, parse->current_scope, var->vname);
@@ -273,7 +273,7 @@ static node_t *external_declaration(parse_t *parse) {
     }
     prev = prev->next;
   }
-  lex_expect_keyword_is(parse->lex, ';');
+  cpp_expect_keyword_is(parse, ';');
   return node;
 }
 
@@ -374,14 +374,14 @@ static type_t *declaration_specifier(parse_t *parse, int *sclassp) {
   int kind = -1, sign = -1, size = -1;
   type_t *type = NULL;
   bool is_const = false;
-  token_t *token = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+  token_t *token = cpp_next_token_is(parse, TOKEN_KIND_IDENTIFIER);
   if (token != NULL) {
-    lex_unget_token(parse->lex, token);
+    cpp_unget_token(parse, token);
     if (find_variable(parse, parse->current_scope, token->identifier) != NULL) {
       return NULL;
     }
   }
-  while ((token = lex_get_token(parse->lex)) != NULL) {
+  while ((token = cpp_get_token(parse)) != NULL) {
     if (token->kind == TOKEN_KIND_KEYWORD) {
       if (token->keyword == TOKEN_KEYWORD_TYPEDEF) {
         if (sclassp == NULL) {
@@ -452,7 +452,7 @@ static type_t *declaration_specifier(parse_t *parse, int *sclassp) {
       } else if (t != NULL) {
         if (t->is_typedef) {
           if (type != NULL || kind != -1) {
-            lex_unget_token(parse->lex, token);
+            cpp_unget_token(parse, token);
             break;
           }
           type = t;
@@ -465,7 +465,7 @@ static type_t *declaration_specifier(parse_t *parse, int *sclassp) {
         continue;
       }
     }
-    lex_unget_token(parse->lex, token);
+    cpp_unget_token(parse, token);
     break;
   }
   type = select_type(parse, type, kind, sign, size);
@@ -495,13 +495,13 @@ static type_t *make_empty_struct_type(parse_t *parse, token_t *tag, bool is_stru
 }
 
 static type_t *struct_or_union_specifier(parse_t *parse, bool is_struct) {
-  token_t *tag = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+  token_t *tag = cpp_next_token_is(parse, TOKEN_KIND_IDENTIFIER);
   type_t *type = NULL;
 
   if (tag != NULL) {
     type = type_get_by_tag(parse, tag->identifier, false);
   }
-  if (!lex_next_keyword_is(parse->lex, '{')) {
+  if (!cpp_next_keyword_is(parse, '{')) {
     if (type == NULL) {
       type = make_empty_struct_type(parse, tag, is_struct);
     } else if (type->is_struct != is_struct) {
@@ -514,7 +514,7 @@ static type_t *struct_or_union_specifier(parse_t *parse, bool is_struct) {
   } else if (type->fields->size > 0) {
     errorf("redefinition of '%s'", tag->identifier);
   }
-  while (!lex_next_keyword_is(parse->lex, '}')) {
+  while (!cpp_next_keyword_is(parse, '}')) {
     int sclass = STORAGE_CLASS_NONE;
     type_t *field_type = declaration_specifier(parse, &sclass);
     if (sclass != STORAGE_CLASS_NONE) {
@@ -530,18 +530,18 @@ static type_t *struct_or_union_specifier(parse_t *parse, bool is_struct) {
 static void struct_declaration(parse_t *parse, type_t *type, type_t *field_type) {
   for (;;) {
     struct_declarator(parse, type, field_type);
-    if (lex_next_keyword_is(parse->lex, ';')) {
+    if (cpp_next_keyword_is(parse, ';')) {
       break;
     }
-    lex_expect_keyword_is(parse->lex, ',');
+    cpp_expect_keyword_is(parse, ',');
   }
   align(&type->total_size, type->align);
 }
 
 static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type) {
-  token_t *token = lex_next_keyword_is(parse->lex, ';');
+  token_t *token = cpp_next_keyword_is(parse, ';');
   if (field_type->kind == TYPE_KIND_STRUCT && token != NULL) {
-    lex_unget_token(parse->lex, token);
+    cpp_unget_token(parse, token);
     align(&type->total_size, 4);
     for (map_entry_t *e = field_type->fields->top; e != NULL; e = e->next) {
       node_t *field = (node_t *)e->val;
@@ -564,7 +564,7 @@ static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type) 
     return;
   }
   if (token != NULL) {
-    lex_unget_token(parse->lex, token);
+    cpp_unget_token(parse, token);
     return;
   }
 
@@ -591,9 +591,9 @@ static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type) 
 }
 
 static type_t *declarator_array(parse_t *parse, type_t *type) {
-  if (lex_next_keyword_is(parse->lex, '[')) {
+  if (cpp_next_keyword_is(parse, '[')) {
     node_t *size = constant_expression(parse);
-    lex_expect_keyword_is(parse->lex, ']');
+    cpp_expect_keyword_is(parse, ']');
     type_t *parent_type = declarator_array(parse, type);
     type = type_make_array(parse, parent_type, size->ival);
   }
@@ -611,18 +611,18 @@ static node_t *variable_declarator(parse_t *parse, type_t *type, int sclass, vec
 }
 
 static type_t *declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp) {
-  while (lex_next_keyword_is(parse->lex, '*')) {
+  while (cpp_next_keyword_is(parse, '*')) {
     type = type_get_ptr(parse, type);
   }
   return direct_declarator(parse, type, namep, argsp);
 }
 
 static type_t *direct_declarator_tail(parse_t *parse, type_t *type, vector_t **argsp) {
-  if (lex_next_keyword_is(parse->lex, '[')) {
+  if (cpp_next_keyword_is(parse, '[')) {
     node_t *size = NULL;
-    if (!lex_next_keyword_is(parse->lex, ']')) {
+    if (!cpp_next_keyword_is(parse, ']')) {
       size = constant_expression(parse);
-      lex_expect_keyword_is(parse->lex, ']');
+      cpp_expect_keyword_is(parse, ']');
     }
     type_t *parent_type = declarator_array(parse, type);
     if (size == NULL) {
@@ -630,12 +630,12 @@ static type_t *direct_declarator_tail(parse_t *parse, type_t *type, vector_t **a
     } else {
       type = type_make_array(parse, parent_type, size->ival);
     }
-  } else if (lex_next_keyword_is(parse->lex, '(')) {
+  } else if (cpp_next_keyword_is(parse, '(')) {
     vector_t *args = vector_new();
     vector_t *argtypes = vector_new();
-    while (!lex_next_keyword_is(parse->lex, ')')) {
+    while (!cpp_next_keyword_is(parse, ')')) {
       if (args->size > 0) {
-        lex_expect_keyword_is(parse->lex, ',');
+        cpp_expect_keyword_is(parse, ',');
       }
       int sclass = STORAGE_CLASS_NONE;
       char *name = NULL;
@@ -643,7 +643,7 @@ static type_t *direct_declarator_tail(parse_t *parse, type_t *type, vector_t **a
       t = declarator(parse, t, &name, NULL);
       if (t->kind == TYPE_KIND_VOID) {
         if (args->size == 0 && name == NULL) {
-          lex_expect_keyword_is(parse->lex, ')');
+          cpp_expect_keyword_is(parse, ')');
           break;
         }
         errorf("void is not allowed");
@@ -683,10 +683,10 @@ static type_t *join_stub_type(parse_t *parse, type_t *base, type_t *stub) {
 }
 
 static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp) {
-  if (lex_next_keyword_is(parse->lex, '(')) {
+  if (cpp_next_keyword_is(parse, '(')) {
     type_t *stub = type_new_stub();
     type_t *tmp = declarator(parse, stub, namep, argsp);
-    lex_expect_keyword_is(parse->lex, ')');
+    cpp_expect_keyword_is(parse, ')');
     type = direct_declarator_tail(parse, type, argsp);
     type = join_stub_type(parse, type, tmp);
     type_free(stub);
@@ -694,7 +694,7 @@ static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep, vec
   }
 
   if (namep) {
-    token_t *token = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+    token_t *token = cpp_next_token_is(parse, TOKEN_KIND_IDENTIFIER);
     if (token != NULL) {
       *namep = token->identifier;
     }
@@ -888,9 +888,9 @@ static node_t *constant_expression(parse_t *parse) {
 
 static node_t *conditional_expression(parse_t *parse) {
   node_t *node = logical_or_expression(parse);
-  if (lex_next_keyword_is(parse->lex, '?')) {
+  if (cpp_next_keyword_is(parse, '?')) {
     node_t *then_body = expression(parse);
-    lex_expect_keyword_is(parse->lex, ':');
+    cpp_expect_keyword_is(parse, ':');
     node_t *else_body = conditional_expression(parse);
     if (!type_is_assignable(then_body->type, else_body->type)) {
       errorf("incompatible operand types ('%s' and '%s')", then_body->type->name, else_body->type->name);
@@ -904,7 +904,7 @@ static node_t *conditional_expression(parse_t *parse) {
 static node_t *logical_or_expression(parse_t *parse) {
   node_t *node = logical_and_expression(parse);
   for (;;) {
-    if (!lex_next_keyword_is(parse->lex, OP_OROR)) {
+    if (!cpp_next_keyword_is(parse, OP_OROR)) {
       break;
     }
     node_t *right = logical_and_expression(parse);
@@ -916,7 +916,7 @@ static node_t *logical_or_expression(parse_t *parse) {
 static node_t *logical_and_expression(parse_t *parse) {
   node_t *node = inclusive_or_expression(parse);
   for (;;) {
-    if (!lex_next_keyword_is(parse->lex, OP_ANDAND)) {
+    if (!cpp_next_keyword_is(parse, OP_ANDAND)) {
       break;
     }
     node_t *right = inclusive_or_expression(parse);
@@ -928,7 +928,7 @@ static node_t *logical_and_expression(parse_t *parse) {
 static node_t *inclusive_or_expression(parse_t *parse) {
   node_t *node = exclusive_or_expression(parse);
   for (;;) {
-    if (!lex_next_keyword_is(parse->lex, '|')) {
+    if (!cpp_next_keyword_is(parse, '|')) {
       break;
     }
     node_t *right = exclusive_or_expression(parse);
@@ -943,7 +943,7 @@ static node_t *inclusive_or_expression(parse_t *parse) {
 static node_t *exclusive_or_expression(parse_t *parse) {
   node_t *node = and_expression(parse);
   for (;;) {
-    if (!lex_next_keyword_is(parse->lex, '^')) {
+    if (!cpp_next_keyword_is(parse, '^')) {
       break;
     }
     node_t *right = and_expression(parse);
@@ -958,7 +958,7 @@ static node_t *exclusive_or_expression(parse_t *parse) {
 static node_t *and_expression(parse_t *parse) {
   node_t *node = equality_expression(parse);
   for (;;) {
-    if (!lex_next_keyword_is(parse->lex, '&')) {
+    if (!cpp_next_keyword_is(parse, '&')) {
       break;
     }
     node_t *right = equality_expression(parse);
@@ -974,9 +974,9 @@ static node_t *equality_expression(parse_t *parse) {
   node_t *node = relational_expression(parse);
   for (;;) {
     int op;
-    if (lex_next_keyword_is(parse->lex, OP_EQ)) {
+    if (cpp_next_keyword_is(parse, OP_EQ)) {
       op = OP_EQ;
-    } else if (lex_next_keyword_is(parse->lex, OP_NE)) {
+    } else if (cpp_next_keyword_is(parse, OP_NE)) {
       op = OP_NE;
     } else {
       break;
@@ -991,13 +991,13 @@ static node_t *relational_expression(parse_t *parse) {
   node_t *node = shift_expression(parse);
   for (;;) {
     int op;
-    if (lex_next_keyword_is(parse->lex, '<')) {
+    if (cpp_next_keyword_is(parse, '<')) {
       op = '<';
-    } else if (lex_next_keyword_is(parse->lex, OP_LE)) {
+    } else if (cpp_next_keyword_is(parse, OP_LE)) {
       op = OP_LE;
-    } else if (lex_next_keyword_is(parse->lex, '>')) {
+    } else if (cpp_next_keyword_is(parse, '>')) {
       op = '>';
-    } else if (lex_next_keyword_is(parse->lex, OP_GE)) {
+    } else if (cpp_next_keyword_is(parse, OP_GE)) {
       op = OP_GE;
     } else {
       break;
@@ -1012,9 +1012,9 @@ static node_t *shift_expression(parse_t *parse) {
   node_t *node = additive_expression(parse);
   for (;;) {
     int op;
-    if (lex_next_keyword_is(parse->lex, OP_SAL)) {
+    if (cpp_next_keyword_is(parse, OP_SAL)) {
       op = OP_SAL;
-    } else if (lex_next_keyword_is(parse->lex, OP_SAR)) {
+    } else if (cpp_next_keyword_is(parse, OP_SAR)) {
       op = OP_SAR;
     } else {
       break;
@@ -1032,9 +1032,9 @@ static node_t *additive_expression(parse_t *parse) {
   node_t *node = multiplicative_expression(parse);
   for (;;) {
     int op;
-    if (lex_next_keyword_is(parse->lex, '+')) {
+    if (cpp_next_keyword_is(parse, '+')) {
       op = '+';
-    } else if (lex_next_keyword_is(parse->lex, '-')) {
+    } else if (cpp_next_keyword_is(parse, '-')) {
       op = '-';
     } else {
       break;
@@ -1058,11 +1058,11 @@ static node_t *multiplicative_expression(parse_t *parse) {
   node_t *node = cast_expression(parse);
   for (;;) {
     int op;
-    if (lex_next_keyword_is(parse->lex, '*')) {
+    if (cpp_next_keyword_is(parse, '*')) {
       op = '*';
-    } else if (lex_next_keyword_is(parse->lex, '/')) {
+    } else if (cpp_next_keyword_is(parse, '/')) {
       op = '/';
-    } else if (lex_next_keyword_is(parse->lex, '%')) {
+    } else if (cpp_next_keyword_is(parse, '%')) {
       op = '%';
     } else {
       break;
@@ -1075,16 +1075,16 @@ static node_t *multiplicative_expression(parse_t *parse) {
 }
 
 static node_t *cast_expression(parse_t *parse) {
-  token_t *token = lex_next_keyword_is(parse->lex, '(');
+  token_t *token = cpp_next_keyword_is(parse, '(');
   if (token == NULL) {
     return unary_expression(parse);
   }
   type_t *type = type_name(parse);
   if (type == NULL) {
-    lex_unget_token(parse->lex, token);
+    cpp_unget_token(parse, token);
     return unary_expression(parse);
   }
-  lex_expect_keyword_is(parse->lex, ')');
+  cpp_expect_keyword_is(parse, ')');
   if (type->kind == TYPE_KIND_ARRAY) {
     errorf("cast to incomplete type '%s'", type->name);
   }
@@ -1099,7 +1099,7 @@ static node_t *cast_expression(parse_t *parse) {
 }
 
 static node_t *unary_expression(parse_t *parse) {
-  if (lex_next_keyword_is(parse->lex, OP_INC)) {
+  if (cpp_next_keyword_is(parse, OP_INC)) {
     node_t *node = unary_expression(parse);
     if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
       ensure_assignable(parse, node, node->type);
@@ -1107,7 +1107,7 @@ static node_t *unary_expression(parse_t *parse) {
     } else {
       errorf("expression is not assignable");
     }
-  } else if (lex_next_keyword_is(parse->lex, OP_DEC)) {
+  } else if (cpp_next_keyword_is(parse, OP_DEC)) {
     node_t *node = unary_expression(parse);
     if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
       ensure_assignable(parse, node, node->type);
@@ -1115,40 +1115,40 @@ static node_t *unary_expression(parse_t *parse) {
     } else {
       errorf("expression is not assignable");
     }
-  } else if (lex_next_keyword_is(parse->lex, '+')) {
+  } else if (cpp_next_keyword_is(parse, '+')) {
     node_t *node = unary_expression(parse);
     if (node->kind == NODE_KIND_LITERAL && node->type->kind == TYPE_KIND_INT) {
       return node;
     }
     return node_new_unary_op(parse, node->type, '+', node);
-  } else if (lex_next_keyword_is(parse->lex, '-')) {
+  } else if (cpp_next_keyword_is(parse, '-')) {
     node_t *node = unary_expression(parse);
     if (node->kind == NODE_KIND_LITERAL && node->type->kind == TYPE_KIND_INT) {
       node->ival *= -1;
       return node;
     }
     return node_new_unary_op(parse, node->type, '-', node);
-  } else if (lex_next_keyword_is(parse->lex, '~')) {
+  } else if (cpp_next_keyword_is(parse, '~')) {
     node_t *node = unary_expression(parse);
     if (node->kind == NODE_KIND_LITERAL && node->type->kind == TYPE_KIND_INT) {
       node->ival = ~node->ival;
       return node;
     }
     return node_new_unary_op(parse, node->type, '~', node);
-  } else if (lex_next_keyword_is(parse->lex, '!')) {
+  } else if (cpp_next_keyword_is(parse, '!')) {
     node_t *node = unary_expression(parse);
     if (node->kind == NODE_KIND_LITERAL && node->type->kind == TYPE_KIND_INT) {
       node->ival = !node->ival;
       return node;
     }
     return node_new_unary_op(parse, node->type, '!', node);
-  } else if (lex_next_keyword_is(parse->lex, '*')) {
+  } else if (cpp_next_keyword_is(parse, '*')) {
     node_t *node = unary_expression(parse);
     if (node->type->parent == NULL) {
       errorf("pointer type expected, but got %s", node->type->name);
     }
     return node_new_unary_op(parse, node->type->parent, '*', node);
-  } else if (lex_next_keyword_is(parse->lex, '&')) {
+  } else if (cpp_next_keyword_is(parse, '&')) {
     node_t *node = unary_expression(parse);
     type_t *type = type_get_ptr(parse, node->type);
     if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
@@ -1156,15 +1156,15 @@ static node_t *unary_expression(parse_t *parse) {
     } else {
       errorf("cannot take the address of an rvalue of type '%s'", type->name);
     }
-  } else if (lex_next_keyword_is(parse->lex, OP_SIZEOF)) {
+  } else if (cpp_next_keyword_is(parse, OP_SIZEOF)) {
     type_t *type = NULL;
-    token_t *token = lex_next_keyword_is(parse->lex, '(');
+    token_t *token = cpp_next_keyword_is(parse, '(');
     if (token != NULL) {
       type = type_name(parse);
       if (type == NULL) {
-        lex_unget_token(parse->lex, token);
+        cpp_unget_token(parse, token);
       } else {
-        lex_expect_keyword_is(parse->lex, ')');
+        cpp_expect_keyword_is(parse, ')');
       }
     }
     if (type == NULL) {
@@ -1178,16 +1178,16 @@ static node_t *unary_expression(parse_t *parse) {
 
 static vector_t *func_args(parse_t *parse) {
   vector_t *args = vector_new();
-  if (lex_next_keyword_is(parse->lex, ')')) {
+  if (cpp_next_keyword_is(parse, ')')) {
     return args;
   }
   for (;;) {
     node_t *arg = assignment_expression(parse);
     vector_push(args, arg);
-    if (lex_next_keyword_is(parse->lex, ')')) {
+    if (cpp_next_keyword_is(parse, ')')) {
       break;
     }
-    lex_expect_keyword_is(parse->lex, ',');
+    cpp_expect_keyword_is(parse, ',');
   }
   return args;
 }
@@ -1210,7 +1210,7 @@ static void check_call_args(parse_t *parse, node_t *node, vector_t *args) {
 static node_t *postfix_expression(parse_t *parse) {
   node_t *node = primary_expression(parse);
   for (;;) {
-    if (lex_next_keyword_is(parse->lex, '(')) {
+    if (cpp_next_keyword_is(parse, '(')) {
       vector_t *args = func_args(parse);
       node_t *func = NULL;
       if (node->kind == NODE_KIND_IDENTIFIER) {
@@ -1235,33 +1235,33 @@ static node_t *postfix_expression(parse_t *parse) {
         errorf("Undefined varaible: %s", node->identifier);
       }
       node = var;
-    } else if (lex_next_keyword_is(parse->lex, '[')) {
+    } else if (cpp_next_keyword_is(parse, '[')) {
       if (node->type->parent == NULL) {
         errorf("pointer or array type expected, but got %s", node->type->name);
       }
       type_t *type = type_get_ptr(parse, node->type->parent);
       node = node_new_binary_op(parse, type, '+', node, expression(parse));
-      lex_expect_keyword_is(parse->lex, ']');
+      cpp_expect_keyword_is(parse, ']');
       node = node_new_unary_op(parse, type->parent, '*', node);
-    } else if (lex_next_keyword_is(parse->lex, '.')) {
+    } else if (cpp_next_keyword_is(parse, '.')) {
       if (node->type->kind != TYPE_KIND_STRUCT) {
         errorf("member reference base type '%s' is not a structure or union", node->type->name);
       }
-      token_t *token = lex_expect_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+      token_t *token = cpp_expect_token_is(parse, TOKEN_KIND_IDENTIFIER);
       map_entry_t *e = map_find(node->type->fields, token->identifier);
       if (e == NULL) {
         errorf("no member named '%s' in '%s'", token->identifier, node->type->fields);
       }
       node_t *var = (node_t *)e->val;
       node = node_new_binary_op(parse, var->type, '.', node, var);
-    } else if (lex_next_keyword_is(parse->lex, OP_ARROW)) {
+    } else if (cpp_next_keyword_is(parse, OP_ARROW)) {
       if (node->type->kind == TYPE_KIND_STRUCT) {
         errorf("member reference type '%s' is not a pointer; did you mean to use '.'?", node->type->name);
       }
       if (node->type->kind != TYPE_KIND_PTR || node->type->parent->kind != TYPE_KIND_STRUCT) {
         errorf("member reference base type '%s' is not a structure or union", node->type->name);
       }
-      token_t *token = lex_expect_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+      token_t *token = cpp_expect_token_is(parse, TOKEN_KIND_IDENTIFIER);
       map_entry_t *e = map_find(node->type->parent->fields, token->identifier);
       if (e == NULL) {
         errorf("no member named '%s' in '%s'", token->identifier, node->type->fields);
@@ -1269,14 +1269,14 @@ static node_t *postfix_expression(parse_t *parse) {
       node_t *var = (node_t *)e->val;
       node = node_new_unary_op(parse, node->type->parent, '*', node);
       node = node_new_binary_op(parse, var->type, '.', node, var);
-    } else if (lex_next_keyword_is(parse->lex, OP_INC)) {
+    } else if (cpp_next_keyword_is(parse, OP_INC)) {
       if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
         ensure_assignable(parse, node, node->type);
         node = node_new_unary_op(parse, node->type, OP_PINC, node);
       } else {
         errorf("expression is not assignable");
       }
-    } else if (lex_next_keyword_is(parse->lex, OP_DEC)) {
+    } else if (cpp_next_keyword_is(parse, OP_DEC)) {
       if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
         ensure_assignable(parse, node, node->type);
         node = node_new_unary_op(parse, node->type, OP_PDEC, node);
@@ -1291,13 +1291,13 @@ static node_t *postfix_expression(parse_t *parse) {
 }
 
 static node_t *primary_expression(parse_t *parse) {
-  token_t *token = lex_get_token(parse->lex);
+  token_t *token = cpp_get_token(parse);
   node_t *node;
   switch (token->kind) {
   case TOKEN_KIND_KEYWORD:
     if (token->keyword == '(') {
       node = expression(parse);
-      lex_expect_keyword_is(parse->lex, ')');
+      cpp_expect_keyword_is(parse, ')');
       return node;
     }
     errorf("unknown keyword");
@@ -1346,9 +1346,9 @@ static node_t *primary_expression(parse_t *parse) {
       node = node_new_string(parse, token->sval, -1);
     }
     for (;;) {
-      token = lex_get_token(parse->lex);
+      token = cpp_get_token(parse);
       if (token->kind != TOKEN_KIND_STRING) {
-        lex_unget_token(parse->lex, token);
+        cpp_unget_token(parse, token);
         break;
       }
       string_append(node->sval, token->sval->buf);
@@ -1361,7 +1361,7 @@ static node_t *primary_expression(parse_t *parse) {
 static node_t *expression(parse_t *parse) {
   node_t *node = assignment_expression(parse);
   node_t *prev = node;
-  while (lex_next_keyword_is(parse->lex, ',')) {
+  while (cpp_next_keyword_is(parse, ',')) {
     prev->next = assignment_expression(parse);
     prev = prev->next;
   }
@@ -1372,27 +1372,27 @@ static node_t *assignment_expression(parse_t *parse) {
   node_t *node = conditional_expression(parse);
   for (;;) {
     int op;
-    if (lex_next_keyword_is(parse->lex, '=')) {
+    if (cpp_next_keyword_is(parse, '=')) {
       op = '=';
-    } else if (lex_next_keyword_is(parse->lex, '+' | OP_ASSIGN_MASK)) {
+    } else if (cpp_next_keyword_is(parse, '+' | OP_ASSIGN_MASK)) {
       op = '+' | OP_ASSIGN_MASK;
-    } else if (lex_next_keyword_is(parse->lex, '-' | OP_ASSIGN_MASK)) {
+    } else if (cpp_next_keyword_is(parse, '-' | OP_ASSIGN_MASK)) {
       op = '-' | OP_ASSIGN_MASK;
-    } else if (lex_next_keyword_is(parse->lex, '*' | OP_ASSIGN_MASK)) {
+    } else if (cpp_next_keyword_is(parse, '*' | OP_ASSIGN_MASK)) {
       op = '*' | OP_ASSIGN_MASK;
-    } else if (lex_next_keyword_is(parse->lex, '/' | OP_ASSIGN_MASK)) {
+    } else if (cpp_next_keyword_is(parse, '/' | OP_ASSIGN_MASK)) {
       op = '/' | OP_ASSIGN_MASK;
-    } else if (lex_next_keyword_is(parse->lex, '%' | OP_ASSIGN_MASK)) {
+    } else if (cpp_next_keyword_is(parse, '%' | OP_ASSIGN_MASK)) {
       op = '%' | OP_ASSIGN_MASK;
-    } else if (lex_next_keyword_is(parse->lex, '&' | OP_ASSIGN_MASK)) {
+    } else if (cpp_next_keyword_is(parse, '&' | OP_ASSIGN_MASK)) {
       op = '&' | OP_ASSIGN_MASK;
-    } else if (lex_next_keyword_is(parse->lex, '|' | OP_ASSIGN_MASK)) {
+    } else if (cpp_next_keyword_is(parse, '|' | OP_ASSIGN_MASK)) {
       op = '|' | OP_ASSIGN_MASK;
-    } else if (lex_next_keyword_is(parse->lex, '^' | OP_ASSIGN_MASK)) {
+    } else if (cpp_next_keyword_is(parse, '^' | OP_ASSIGN_MASK)) {
       op = '^' | OP_ASSIGN_MASK;
-    } else if (lex_next_keyword_is(parse->lex, OP_SAL | OP_ASSIGN_MASK)) {
+    } else if (cpp_next_keyword_is(parse, OP_SAL | OP_ASSIGN_MASK)) {
       op = OP_SAL | OP_ASSIGN_MASK;
-    } else if (lex_next_keyword_is(parse->lex, OP_SAR | OP_ASSIGN_MASK)) {
+    } else if (cpp_next_keyword_is(parse, OP_SAR | OP_ASSIGN_MASK)) {
       op = OP_SAR | OP_ASSIGN_MASK;
     } else {
       break;
@@ -1442,13 +1442,13 @@ static type_t *make_empty_enum_type(parse_t *parse, token_t *tag) {
 }
 
 static type_t *enum_specifier(parse_t *parse) {
-  token_t *tag = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+  token_t *tag = cpp_next_token_is(parse, TOKEN_KIND_IDENTIFIER);
   type_t *type = NULL;
 
   if (tag != NULL) {
     type = type_get_by_tag(parse, tag->identifier, false);
   }
-  if (!lex_next_keyword_is(parse->lex, '{')) {
+  if (!cpp_next_keyword_is(parse, '{')) {
     if (type == NULL) {
       type = make_empty_enum_type(parse, tag);
     }
@@ -1465,19 +1465,19 @@ static type_t *enum_specifier(parse_t *parse) {
 }
 
 static void enumerator_list(parse_t *parse, type_t *type) {
-  for (int n = 0; !lex_next_keyword_is(parse->lex, '}'); n++) {
+  for (int n = 0; !cpp_next_keyword_is(parse, '}'); n++) {
     n = enumerator(parse, type, n);
-    if (!lex_next_keyword_is(parse->lex, ',')) {
-      lex_expect_keyword_is(parse->lex, '}');
+    if (!cpp_next_keyword_is(parse, ',')) {
+      cpp_expect_keyword_is(parse, '}');
       break;
     }
   }
 }
 
 static int enumerator(parse_t *parse, type_t *type, int n) {
-  token_t *name = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+  token_t *name = cpp_next_token_is(parse, TOKEN_KIND_IDENTIFIER);
   node_t *val;
-  if (lex_next_keyword_is(parse->lex, '=')) {
+  if (cpp_next_keyword_is(parse, '=')) {
     val = constant_expression(parse);
   } else {
     val = node_new_int(parse, parse->type_int, n);
@@ -1502,12 +1502,12 @@ static node_t *declaration(parse_t *parse, type_t *type, int sclass) {
   node_t *var = variable_declarator(parse, type, sclass, NULL);
   node_t *node = init_declarator(parse, var);
   node_t *prev = node;
-  while (lex_next_keyword_is(parse->lex, ',')) {
+  while (cpp_next_keyword_is(parse, ',')) {
     var = variable_declarator(parse, type, sclass, NULL);
     prev->next = init_declarator(parse, var);
     prev = prev->next;
   }
-  lex_expect_keyword_is(parse->lex, ';');
+  cpp_expect_keyword_is(parse, ';');
   return node;
 }
 
@@ -1516,7 +1516,7 @@ static node_t *init_declarator(parse_t *parse, node_t *var) {
   if (var->type->kind == TYPE_KIND_VOID) {
     errorf("void is not allowed");
   }
-  if (lex_next_keyword_is(parse->lex, '=')) {
+  if (cpp_next_keyword_is(parse, '=')) {
     if (var->sclass == STORAGE_CLASS_EXTERN) {
       warnf("'extern' variable has an initializer");
     }
@@ -1542,25 +1542,25 @@ static node_t *init_declarator(parse_t *parse, node_t *var) {
 
 static node_t *initializer(parse_t *parse, type_t *type) {
   node_t *init;
-  if (lex_next_keyword_is(parse->lex, '{')) {
+  if (cpp_next_keyword_is(parse, '{')) {
     vector_t *nodes = vector_new();
     if (type->kind == TYPE_KIND_ARRAY) {
-      while (!lex_next_keyword_is(parse->lex, '}')) {
+      while (!cpp_next_keyword_is(parse, '}')) {
         node_t *node = initializer(parse, type->parent);
         vector_push(nodes, node);
-        if (!lex_next_keyword_is(parse->lex, ',')) {
-          lex_expect_keyword_is(parse->lex, '}');
+        if (!cpp_next_keyword_is(parse, ',')) {
+          cpp_expect_keyword_is(parse, '}');
           break;
         }
       }
     } else if (type->kind == TYPE_KIND_STRUCT) {
       map_entry_t *e = type->fields->top;
-      while (!lex_next_keyword_is(parse->lex, '}')) {
+      while (!cpp_next_keyword_is(parse, '}')) {
         node_t *field = (node_t *)e->val;
         node_t *node = initializer(parse, field->type);
         vector_push(nodes, node);
-        if (!lex_next_keyword_is(parse->lex, ',')) {
-          lex_expect_keyword_is(parse->lex, '}');
+        if (!cpp_next_keyword_is(parse, ',')) {
+          cpp_expect_keyword_is(parse, '}');
           break;
         }
         e = e->next;
@@ -1588,7 +1588,7 @@ static node_t *compound_statement(parse_t *parse) {
     parse->next_scope = NULL;
   }
   vector_t *statements = node->statements;
-  while (!lex_next_keyword_is(parse->lex, '}')) {
+  while (!cpp_next_keyword_is(parse, '}')) {
     int sclass = STORAGE_CLASS_NONE;
     type_t *type = declaration_specifier(parse, &sclass);
     if (type != NULL) {
@@ -1596,13 +1596,13 @@ static node_t *compound_statement(parse_t *parse) {
         for (;;) {
           node_t *var = variable_declarator(parse, type, sclass, NULL);
           type_add_typedef(parse, var->vname, var->type);
-          if (lex_next_keyword_is(parse->lex, ';')) {
+          if (cpp_next_keyword_is(parse, ';')) {
             break;
           }
-          lex_expect_keyword_is(parse->lex, ',');
+          cpp_expect_keyword_is(parse, ',');
         }
         continue;
-      } else if (lex_next_keyword_is(parse->lex, ';')) {
+      } else if (cpp_next_keyword_is(parse, ';')) {
         continue;
       }
       vector_push(statements, declaration(parse, type, sclass));
@@ -1615,40 +1615,40 @@ static node_t *compound_statement(parse_t *parse) {
 }
 
 static node_t *statement(parse_t *parse) {
-  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_IF)) {
+  if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_IF)) {
     return selection_statement(parse, TOKEN_KEYWORD_IF);
   }
-  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_SWITCH)) {
+  if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_SWITCH)) {
     return selection_statement(parse, TOKEN_KEYWORD_SWITCH);
   }
-  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_CASE)) {
+  if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_CASE)) {
     return labeled_statement(parse, TOKEN_KEYWORD_CASE, NULL);
   }
-  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_DEFAULT)) {
+  if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_DEFAULT)) {
     return labeled_statement(parse, TOKEN_KEYWORD_DEFAULT, NULL);
   }
-  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_GOTO)) {
+  if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_GOTO)) {
     return jump_statement(parse, TOKEN_KEYWORD_GOTO);
   }
-  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_CONTINUE)) {
+  if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_CONTINUE)) {
     return jump_statement(parse, TOKEN_KEYWORD_CONTINUE);
   }
-  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_BREAK)) {
+  if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_BREAK)) {
     return jump_statement(parse, TOKEN_KEYWORD_BREAK);
   }
-  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_RETURN)) {
+  if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_RETURN)) {
     return jump_statement(parse, TOKEN_KEYWORD_RETURN);
   }
-  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_WHILE)) {
+  if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_WHILE)) {
     return iteration_statement(parse, TOKEN_KEYWORD_WHILE);
   }
-  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_DO)) {
+  if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_DO)) {
     return iteration_statement(parse, TOKEN_KEYWORD_DO);
   }
-  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_FOR)) {
+  if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_FOR)) {
     return iteration_statement(parse, TOKEN_KEYWORD_FOR);
   }
-  if (lex_next_keyword_is(parse->lex, '{')) {
+  if (cpp_next_keyword_is(parse, '{')) {
     return compound_statement(parse);
   }
   token_t *token = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
@@ -1670,11 +1670,11 @@ static node_t *labeled_statement(parse_t *parse, int keyword, char *label) {
   }
   if (keyword == TOKEN_KEYWORD_CASE) {
     node_t *exp = constant_expression(parse);
-    lex_expect_keyword_is(parse->lex, ':');
+    cpp_expect_keyword_is(parse, ':');
     node_t *body = statement(parse);
     return node_new_case(parse, exp, body);
   } else if (keyword == TOKEN_KEYWORD_DEFAULT) {
-    lex_expect_keyword_is(parse->lex, ':');
+    cpp_expect_keyword_is(parse, ':');
     node_t *body = statement(parse);
     return node_new_case(parse, NULL, body);
   }
@@ -1682,22 +1682,22 @@ static node_t *labeled_statement(parse_t *parse, int keyword, char *label) {
 }
 
 static node_t *expression_statement(parse_t *parse) {
-  if (lex_next_keyword_is(parse->lex, ';')) {
+  if (cpp_next_keyword_is(parse, ';')) {
     return node_new_nop(parse);
   }
   node_t *node = expression(parse);
-  lex_expect_keyword_is(parse->lex, ';');
+  cpp_expect_keyword_is(parse, ';');
   return node;
 }
 
 static node_t *selection_statement(parse_t *parse, int keyword) {
   if (keyword == TOKEN_KEYWORD_IF) {
-    lex_expect_keyword_is(parse->lex, '(');
+    cpp_expect_keyword_is(parse, '(');
     node_t *cond = expression(parse);
-    lex_expect_keyword_is(parse->lex, ')');
+    cpp_expect_keyword_is(parse, ')');
     node_t *then_body = statement(parse);
     node_t *else_body = NULL;
-    if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_ELSE)) {
+    if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_ELSE)) {
       else_body = statement(parse);
     }
     return node_new_if(parse, cond, then_body, else_body);
@@ -1705,11 +1705,11 @@ static node_t *selection_statement(parse_t *parse, int keyword) {
     node_t *scope = node_new_block(parse, BLOCK_KIND_SWITCH, vector_new(), parse->current_scope);
     parse->current_scope = scope;
     parse->next_scope = scope;
-    lex_expect_keyword_is(parse->lex, '(');
+    cpp_expect_keyword_is(parse, '(');
     node_t *expr = expression(parse);
-    lex_expect_keyword_is(parse->lex, ')');
+    cpp_expect_keyword_is(parse, ')');
     node_t *node = node_new_switch(parse, expr, scope);
-    if (lex_next_keyword_is(parse->lex, '{')) {
+    if (cpp_next_keyword_is(parse, '{')) {
       compound_statement(parse);
     } else {
       parse->next_scope = NULL;
@@ -1723,11 +1723,11 @@ static node_t *selection_statement(parse_t *parse, int keyword) {
 
 static node_t *iteration_statement(parse_t *parse, int keyword) {
   if (keyword == TOKEN_KEYWORD_WHILE) {
-    lex_expect_keyword_is(parse->lex, '(');
+    cpp_expect_keyword_is(parse, '(');
     node_t *cond = expression(parse);
-    lex_expect_keyword_is(parse->lex, ')');
+    cpp_expect_keyword_is(parse, ')');
     node_t *body;
-    if (lex_next_keyword_is(parse->lex, '{')) {
+    if (cpp_next_keyword_is(parse, '{')) {
       node_t *scope = node_new_block(parse, BLOCK_KIND_LOOP, vector_new(), parse->current_scope);
       parse->current_scope = scope;
       parse->next_scope = scope;
@@ -1738,7 +1738,7 @@ static node_t *iteration_statement(parse_t *parse, int keyword) {
     return node_new_while(parse, cond, body);
   } else if (keyword == TOKEN_KEYWORD_DO) {
     node_t *body;
-    if (lex_next_keyword_is(parse->lex, '{')) {
+    if (cpp_next_keyword_is(parse, '{')) {
       node_t *scope = node_new_block(parse, BLOCK_KIND_LOOP, vector_new(), parse->current_scope);
       parse->current_scope = scope;
       parse->next_scope = scope;
@@ -1746,19 +1746,19 @@ static node_t *iteration_statement(parse_t *parse, int keyword) {
     } else {
       body = statement(parse);
     }
-    lex_expect_keyword_is(parse->lex, TOKEN_KEYWORD_WHILE);
-    lex_expect_keyword_is(parse->lex, '(');
+    cpp_expect_keyword_is(parse, TOKEN_KEYWORD_WHILE);
+    cpp_expect_keyword_is(parse, '(');
     node_t *cond = expression(parse);
-    lex_expect_keyword_is(parse->lex, ')');
-    lex_expect_keyword_is(parse->lex, ';');
+    cpp_expect_keyword_is(parse, ')');
+    cpp_expect_keyword_is(parse, ';');
     return node_new_do(parse, cond, body);
   } else if (keyword == TOKEN_KEYWORD_FOR) {
     node_t *scope = node_new_block(parse, BLOCK_KIND_LOOP, vector_new(), parse->current_scope);
     parse->current_scope = scope;
     parse->next_scope = scope;
     node_t *init = NULL, *cond = NULL, *step = NULL;
-    lex_expect_keyword_is(parse->lex, '(');
-    if (!lex_next_keyword_is(parse->lex, ';')) {
+    cpp_expect_keyword_is(parse, '(');
+    if (!cpp_next_keyword_is(parse, ';')) {
       int sclass = STORAGE_CLASS_NONE;
       type_t *type = declaration_specifier(parse, &sclass);
       if (type != NULL) {
@@ -1768,19 +1768,19 @@ static node_t *iteration_statement(parse_t *parse, int keyword) {
         init = declaration(parse, type, sclass);
       } else {
         init = expression(parse);
-        lex_expect_keyword_is(parse->lex, ';');
+        cpp_expect_keyword_is(parse, ';');
       }
     }
-    if (!lex_next_keyword_is(parse->lex, ';')) {
+    if (!cpp_next_keyword_is(parse, ';')) {
       cond = expression(parse);
-      lex_expect_keyword_is(parse->lex, ';');
+      cpp_expect_keyword_is(parse, ';');
     }
-    if (!lex_next_keyword_is(parse->lex, ')')) {
+    if (!cpp_next_keyword_is(parse, ')')) {
       step = expression(parse);
-      lex_expect_keyword_is(parse->lex, ')');
+      cpp_expect_keyword_is(parse, ')');
     }
     node_t *body = NULL;
-    if (lex_next_keyword_is(parse->lex, '{')) {
+    if (cpp_next_keyword_is(parse, '{')) {
       body = compound_statement(parse);
     } else {
       parse->next_scope = NULL;
@@ -1803,10 +1803,10 @@ static node_t *jump_statement(parse_t *parse, int keyword) {
       return node_new_goto(parse, label->identifier);
     }
   case TOKEN_KEYWORD_CONTINUE:
-    lex_expect_keyword_is(parse->lex, ';');
+    cpp_expect_keyword_is(parse, ';');
     return node_new_continue(parse);
   case TOKEN_KEYWORD_BREAK:
-    lex_expect_keyword_is(parse->lex, ';');
+    cpp_expect_keyword_is(parse, ';');
     return node_new_break(parse);
   }
 
@@ -1815,7 +1815,7 @@ static node_t *jump_statement(parse_t *parse, int keyword) {
   assert(var != NULL && type_is_function(var->type));
   type_t *type = var->type->parent;
   node_t *exp = NULL;
-  if (!lex_next_keyword_is(parse->lex, ';')) {
+  if (!cpp_next_keyword_is(parse, ';')) {
     if (type->kind == TYPE_KIND_VOID) {
       errorf("void function '%s' should not return a value", var->vname);
     }
@@ -1823,7 +1823,7 @@ static node_t *jump_statement(parse_t *parse, int keyword) {
     if (!type_is_assignable(exp->type, type)) {
       errorf("different returning expression type from '%s' to '%s'", exp->type->name, type->name);
     }
-    lex_expect_keyword_is(parse->lex, ';');
+    cpp_expect_keyword_is(parse, ';');
   } else {
     if (type->kind != TYPE_KIND_VOID) {
       errorf("non-void function '%s' should return a value", var->vname);
@@ -1841,6 +1841,7 @@ static parse_t *parse_new(FILE *fp) {
   parse->vars = map_new();
   parse->types = map_new();
   parse->tags = map_new();
+  parse->macros = map_new();
   parse->current_scope = NULL;
   parse->next_scope = NULL;
 
@@ -1894,13 +1895,15 @@ void parse_free(parse_t *parse) {
   parse->types->free_val_fn = (void (*)(void *))type_free;
   map_free(parse->types);
   map_free(parse->tags);
+  parse->macros->free_val_fn = (void (*)(void *))macro_free;
+  map_free(parse->macros);
   free(parse);
 }
 
 parse_t *parse_file(FILE *fp) {
   parse_t *parse = parse_new(fp);
   for (;;) {
-    if (lex_next_token_is(parse->lex, TOKEN_KIND_EOF)) {
+    if (cpp_next_token_is(parse, TOKEN_KIND_EOF)) {
       break;
     }
     vector_push(parse->statements, external_declaration(parse));

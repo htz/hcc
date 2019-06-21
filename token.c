@@ -1,6 +1,7 @@
 // Copyright 2019 @htz. Released under the MIT license.
 
 #include <stdlib.h>
+#include <string.h>
 #include "hcc.h"
 
 static const char *token_names[] = {
@@ -25,6 +26,7 @@ token_t *token_new(lex_t *lex, int kind) {
   token->kind = kind;
   token->line = lex->mark_line;
   token->column = lex->mark_column;
+  token->hideset = NULL;
   vector_push(lex->tokens, (void *)token);
   return token;
 }
@@ -38,7 +40,52 @@ void token_free(token_t *token) {
     string_free(token->sval);
     break;
   }
+  if (token->hideset != NULL) {
+    vector_free(token->hideset);
+  }
   free(token);
+}
+
+token_t *token_dup(lex_t *lex, token_t *token) {
+  token_t *dup = (token_t *)malloc(sizeof (token_t));
+  memcpy(dup, token, sizeof (token_t));
+  switch (token->kind) {
+  case TOKEN_KIND_IDENTIFIER:
+    dup->identifier = strdup(token->identifier);
+    break;
+  case TOKEN_KIND_STRING:
+    dup->sval = string_dup(token->sval);
+    break;
+  }
+  dup->hideset = NULL;
+  vector_push(lex->tokens, (void *)dup);
+  return dup;
+}
+
+void token_add_hideset(token_t *token, macro_t *macro) {
+  if (token->hideset == NULL) {
+    token->hideset = vector_new();
+  }
+  vector_push(token->hideset, macro);
+}
+
+bool token_exists_hideset(token_t *token, macro_t *macro) {
+  if (token->hideset == NULL) {
+    return false;
+  }
+  return vector_exists(token->hideset, macro);
+}
+
+void token_union_hideset(token_t *token, vector_t *hideset) {
+  if (hideset == NULL) {
+    return;
+  }
+  for (int i = 0; i < hideset->size; i++) {
+    macro_t *macro = (macro_t *)hideset->data[i];
+    if (!token_exists_hideset(token, macro)) {
+      token_add_hideset(token, macro);
+    }
+  }
 }
 
 const char *token_name(int kind) {

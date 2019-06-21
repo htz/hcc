@@ -56,3 +56,12 @@ void *vector_dup(vector_t *vec) {
   memcpy(vector->data, vec->data, sizeof (void *) * vec->capacity);
   return vector;
 }
+
+bool vector_exists(vector_t *vec, void *d) {
+  for (int i = 0; i < vec->size; i++) {
+    if (vec->data[i] == d) {
+      return true;
+    }
+  }
+  return false;
+}

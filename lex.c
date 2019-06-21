@@ -269,9 +269,34 @@ token_t *lex_get_token(lex_t *lex) {
   }
   mark_pos(lex);
 retry:
-  do {
+  for (;;) {
     c = get_char(lex);
-  } while (c != '\0' && isspace(c));
+    if (c == '\0') {
+      return token_new(lex, TOKEN_KIND_EOF);
+    }
+    if (c == ' ' || c == '\t' || c == '\v') {
+      continue;
+    }
+    if (c == '\n') {
+      return token_new(lex, TOKEN_KIND_NEWLINE);
+    }
+    if (c == '\r') {
+      next_char(lex, '\n');
+      return token_new(lex, TOKEN_KIND_NEWLINE);
+    }
+    if (c == '\\') {
+      c = get_char(lex);
+      if (c == '\n') {
+        continue;
+      }
+      if (c == '\r') {
+        next_char(lex, '\n');
+        continue;
+      }
+      unget_char(lex, c);
+    }
+    break;
+  }
   if (isdigit(c)) {
     if (c == '0') {
       c = get_char(lex);
@@ -483,7 +508,7 @@ retry:
     return new_keyword(lex, '!');
   case '(': case ')': case ',': case ';':
   case '[': case ']': case '{': case '}':
-  case '?': case ':': case '~':
+  case '?': case ':': case '~': case '#':
     return new_keyword(lex, c);
   case '.':
     c = get_char(lex);
