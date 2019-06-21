@@ -105,6 +105,7 @@ enum {
   TOKEN_KIND_STRING,
   TOKEN_KIND_KEYWORD,
   TOKEN_KIND_IDENTIFIER,
+  TOKEN_KIND_NEWLINE,
   TOKEN_KIND_EOF,
   TOKEN_KIND_UNKNOWN,
 };
@@ -153,6 +154,7 @@ struct token {
   int kind;
   int line;
   int column;
+  vector_t *hideset;
   union {
     long ival;
     double fval;
@@ -311,6 +313,11 @@ struct node {
   };
 };
 
+typedef struct macro macro_t;
+struct macro {
+  vector_t *tokens;
+};
+
 typedef struct parse parse_t;
 struct parse {
   lex_t *lex;
@@ -320,6 +327,7 @@ struct parse {
   map_t *vars;
   map_t *types;
   map_t *tags;
+  map_t *macros;
   node_t *current_function;
   node_t *current_scope;
   node_t *next_scope;
@@ -350,6 +358,7 @@ void vector_free(vector_t *vec);
 void vector_push(vector_t *vec, void *d);
 void *vector_pop(vector_t *vec);
 void *vector_dup(vector_t *vec);
+bool vector_exists(vector_t *vec, void *d);
 
 // map.c
 map_t *map_new(void);
@@ -404,6 +413,10 @@ bool type_is_function(type_t *type);
 // token.c
 token_t *token_new(lex_t *lex, int kind);
 void token_free(token_t *token);
+token_t *token_dup(lex_t *lex, token_t *token);
+void token_add_hideset(token_t *token, macro_t *macro);
+bool token_exists_hideset(token_t *token, macro_t *macro);
+void token_union_hideset(token_t *token, vector_t *hideset);
 const char *token_name(int kind);
 const char *token_str(token_t *token);
 
@@ -447,6 +460,18 @@ void node_debug(node_t *node);
 // parse.c
 void parse_free(parse_t *parse);
 parse_t *parse_file(FILE *fp);
+
+// macro.c
+macro_t *macro_new();
+void macro_free(macro_t *m);
+
+// cpp.c
+token_t *cpp_get_token(parse_t *parse);
+void cpp_unget_token(parse_t *parse, token_t *token);
+token_t *cpp_next_token_is(parse_t *parse, int kind);
+token_t *cpp_expect_token_is(parse_t *parse, int k);
+token_t *cpp_next_keyword_is(parse_t *parse, int k);
+void cpp_expect_keyword_is(parse_t *parse, int k);
 
 // gen.c
 void gen(parse_t *parse);
