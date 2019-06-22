@@ -26,7 +26,15 @@ token_t *token_new(lex_t *lex, int kind) {
   token->kind = kind;
   token->line = lex->mark_line;
   token->column = lex->mark_column;
+  token->is_space = lex->is_space;
   token->hideset = NULL;
+  if (kind == TOKEN_MACRO_PARAM || kind == TOKEN_KIND_EOF || kind == TOKEN_KIND_NEWLINE) {
+    token->str = strdup("");
+  } else {
+    token->str = malloc(lex->p - lex->mark_p + 1);
+    strncpy(token->str, lex->mark_p, lex->p - lex->mark_p);
+    token->str[lex->p - lex->mark_p] = '\0';
+  }
   vector_push(lex->tokens, (void *)token);
   return token;
 }
@@ -43,6 +51,7 @@ void token_free(token_t *token) {
   if (token->hideset != NULL) {
     vector_free(token->hideset);
   }
+  free(token->str);
   free(token);
 }
 
@@ -58,6 +67,7 @@ token_t *token_dup(lex_t *lex, token_t *token) {
     break;
   }
   dup->hideset = NULL;
+  dup->str = strdup(token->str);
   vector_push(lex->tokens, (void *)dup);
   return dup;
 }

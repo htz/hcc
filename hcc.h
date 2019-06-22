@@ -105,6 +105,7 @@ enum {
   TOKEN_KIND_STRING,
   TOKEN_KIND_KEYWORD,
   TOKEN_KIND_IDENTIFIER,
+  TOKEN_MACRO_PARAM,
   TOKEN_KIND_NEWLINE,
   TOKEN_KIND_EOF,
   TOKEN_KIND_UNKNOWN,
@@ -132,6 +133,7 @@ enum {
   TOKEN_KEYWORD_STATIC,
   TOKEN_KEYWORD_EXTERN,
   TOKEN_KEYWORD_CONST,
+  TOKEN_KEYWORD_ELLIPSIS,
   OP_SAL,    // <<
   OP_SAR,    // >>
   OP_EQ,     // ==
@@ -146,7 +148,8 @@ enum {
   OP_OROR,   // ||
   OP_ARROW,  // ->
   OP_CAST,
-  OP_SIZEOF, // sizeof
+  OP_SIZEOF,   // sizeof
+  OP_HASHHASH, // ##
   OP_ASSIGN_MASK = 0x1000,
 };
 
@@ -155,6 +158,8 @@ struct token {
   int kind;
   int line;
   int column;
+  bool is_space;
+  char *str;
   vector_t *hideset;
   union {
     long ival;
@@ -162,18 +167,24 @@ struct token {
     string_t *sval;
     int keyword;
     char *identifier;
+    // macro param
+    struct {
+      int position;
+      bool is_vaargs;
+    };
   };
 };
 
 typedef struct lex lex_t;
 struct lex {
   string_t *src;
-  char *p;
+  char *p, *mark_p;
   vector_t *tbuf;
   int line, mark_line;
   int column, mark_column;
   vector_t *tokens;
   vector_t *lines;
+  bool is_space;
 };
 
 enum {
@@ -321,7 +332,9 @@ struct node {
 
 typedef struct macro macro_t;
 struct macro {
+  map_t *args;
   vector_t *tokens;
+  bool is_vaargs;
 };
 
 typedef struct parse parse_t;

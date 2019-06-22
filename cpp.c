@@ -6,8 +6,48 @@
 static void preprocessor_define(parse_t *parse);
 static void preprocessor_undef(parse_t *parse);
 
+static token_t *macro_param(parse_t *parse, int position, bool is_vaargs) {
+  token_t *arg = token_new(parse->lex, TOKEN_MACRO_PARAM);
+  arg->position = position;
+  arg->is_vaargs = is_vaargs;
+  return arg;
+}
+
 static macro_t *read_macro(parse_t *parse) {
   macro_t *macro = macro_new();
+  token_t *token = lex_next_token_is(parse->lex, TOKEN_KIND_KEYWORD);
+  if (token == NULL || token->keyword != '(' || token->is_space) {
+    if (token != NULL) {
+      lex_unget_token(parse->lex, token);
+    }
+  } else {
+    macro->args = map_new();
+    if (!lex_next_keyword_is(parse->lex, ')')) {
+      for (;;) {
+        token = lex_get_token(parse->lex);
+        if (token->kind == TOKEN_KIND_IDENTIFIER) {
+          if (map_get(macro->args, token->identifier) != NULL) {
+            errorf("duplicate macro parameter name '%s'", token->identifier);
+          }
+          token_t *arg = macro_param(parse, macro->args->size, false);
+          map_add(macro->args, token->identifier, arg);
+          if (lex_next_keyword_is(parse->lex, ')')) {
+            break;
+          }
+          lex_expect_keyword_is(parse->lex, ',');
+          continue;
+        }
+        if (token->kind == TOKEN_KIND_KEYWORD && token->keyword == TOKEN_KEYWORD_ELLIPSIS) {
+          macro->is_vaargs = true;
+          token_t *arg = macro_param(parse, macro->args->size, true);
+          map_add(macro->args, "__VA_ARGS__", arg);
+          lex_expect_keyword_is(parse->lex, ')');
+          break;
+        }
+        errorf("invalid token in macro parameter list");
+      }
+    }
+  }
   for (;;) {
      token_t *token = lex_get_token(parse->lex);
      if (token->kind == TOKEN_KIND_NEWLINE || token->kind == TOKEN_KIND_EOF) {
@@ -51,26 +91,152 @@ static token_t *preprocessor(parse_t *parse, token_t *hash_token) {
     return hash_token;
   }
 
-  token_t *token = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
-  if (token == NULL) {
-    return NULL;
-  }
-  if (strcmp("define", token->identifier) == 0) {
+  token_t *token = lex_get_token(parse->lex);
+  if (token->str == NULL) {
+    lex_unget_token(parse->lex, token);
+  } else if (strcmp("define", token->str) == 0) {
     preprocessor_define(parse);
-    return NULL;
-  } else if (strcmp("undef", token->identifier) == 0) {
+  } else if (strcmp("undef", token->str) == 0) {
     preprocessor_undef(parse);
-    return NULL;
   } else {
     lex_unget_token(parse->lex, token);
   }
   return NULL;
 }
 
-static vector_t *subst(parse_t *parse, macro_t *macro, vector_t *hideset) {
+static vector_t *expand_tokens(parse_t *parse, vector_t *tokens, bool is_space) {
+  lex_unget_token(parse->lex, token_new(parse->lex, TOKEN_KIND_EOF));
+  for (int i = tokens->size - 1; i >= 0; i--) {
+    token_t *token = (token_t *)tokens->data[i];
+    lex_unget_token(parse->lex, token);
+  }
+  vector_t *expanded_tokens = vector_new();
+  for (int i = 0;; i++) {
+    token_t *token = cpp_get_token(parse);
+    if (token->kind == TOKEN_KIND_EOF) {
+      break;
+    }
+    token = token_dup(parse->lex, token);
+    if (i == 0) {
+      token->is_space = is_space;
+    }
+    vector_push(expanded_tokens, token);
+  }
+  return expanded_tokens;
+}
+
+static token_t *stringize_tokens(parse_t *parse, vector_t *tokens) {
+  token_t *token = token_new(parse->lex, TOKEN_KIND_STRING);
+  string_t *str = string_new();
+  for (int i = 0; i < tokens->size; i++) {
+    token_t *t = (token_t *)tokens->data[i];
+    if (i > 0 && t->is_space) {
+      string_add(str, ' ');
+    }
+    string_append(str, t->str);
+  }
+  token->sval = str;
+  return token;
+}
+
+static token_t *glue_tokens(parse_t *parse, token_t *before_token, token_t *token) {
+  string_t *token_str = string_new();
+  string_appendf(token_str, "%s%s", before_token->str, token->str);
+  lex_t *lex = lex_new_string(token_str);
+  token_t *glue_token = lex_get_token(lex);
+  if (lex_get_token(lex)->kind != TOKEN_KIND_EOF) {
+    errorf("unconsumed glued token");
+  }
+  glue_token = token_dup(parse->lex, glue_token);
+  glue_token->line = before_token->line;
+  glue_token->column = before_token->column;
+  glue_token->is_space = before_token->is_space;
+  glue_token->hideset = NULL;
+  lex_free(lex);
+  return glue_token;
+}
+
+static vector_t *subst(parse_t *parse, macro_t *macro, vector_t *args, vector_t *hideset) {
   vector_t *tokens = vector_new();
   for (int i = 0; i < macro->tokens->size; i++) {
     token_t *token = (token_t *)macro->tokens->data[i];
+    token_t *next_token = NULL;
+    if (i + 1 < macro->tokens->size) {
+      next_token = (token_t *)macro->tokens->data[i + 1];
+    }
+    if (token->kind == TOKEN_KIND_KEYWORD && token->keyword == '#' && next_token != NULL && next_token->kind == TOKEN_KIND_IDENTIFIER) {
+      token_t *arg = NULL;
+      if (macro->args != NULL) {
+        arg = map_get(macro->args, next_token->identifier);
+      }
+      if (arg != NULL) {
+        vector_t *arg_tokens = args->data[arg->position];
+        token_t *str_token = stringize_tokens(parse, arg_tokens);
+        str_token->is_space = token->is_space;
+        vector_push(tokens, str_token);
+        i++;
+        continue;
+      }
+    } else if (token->kind == TOKEN_KIND_KEYWORD && token->keyword == OP_HASHHASH && next_token != NULL) {
+      token_t *arg = NULL;
+      if (next_token->kind == TOKEN_KIND_IDENTIFIER) {
+        arg = map_get(macro->args, next_token->identifier);
+      }
+      if (arg != NULL) {
+        vector_t *arg_tokens = (vector_t *)args->data[arg->position];
+        token_t *tail_token = NULL;
+        if (tokens->size > 0) {
+          tail_token = (token_t *)tokens->data[tokens->size - 1];
+        }
+        if (arg->is_vaargs && tail_token != NULL && tail_token->kind == TOKEN_KIND_KEYWORD && tail_token->keyword == ',') {
+          if (arg_tokens->size > 0) {
+            vector_push(tokens, arg);
+          } else {
+            vector_pop(tokens);
+          }
+        } else {
+          if (arg_tokens->size > 0) {
+            token_t *before_token = (token_t *)vector_pop(tokens);
+            token_t *glue_token = glue_tokens(parse, before_token, (token_t *)arg_tokens->data[0]);
+            vector_push(tokens, glue_token);
+            for (int j = 1; j < arg_tokens->size; j++) {
+              vector_push(tokens, (token_t *)arg_tokens->data[j]);
+            }
+          }
+        }
+      } else {
+        token_t *before_token = (token_t *)vector_pop(tokens);
+        token_t *glue_token = glue_tokens(parse, before_token, next_token);
+        vector_push(tokens, glue_token);
+      }
+      i++;
+      continue;
+    } else if (token->kind == TOKEN_KIND_IDENTIFIER) {
+      token_t *arg = NULL;
+      if (macro->args != NULL) {
+        arg = map_get(macro->args, token->identifier);
+      }
+      if (arg != NULL) {
+        if (next_token != NULL && next_token->kind == TOKEN_KIND_KEYWORD && next_token->keyword == OP_HASHHASH) {
+          vector_t *arg_tokens = args->data[arg->position];
+          if (arg_tokens->size == 0) {
+            i++;
+          } else {
+            for (int j = 0; j < arg_tokens->size; j++) {
+              vector_push(tokens, (token_t *)arg_tokens->data[j]);
+            }
+          }
+          continue;
+        }
+        vector_t *arg_tokens = (vector_t *)args->data[arg->position];
+        vector_t *expanded_tokens = expand_tokens(parse, arg_tokens, token->is_space);
+        for (int j = 0; j < expanded_tokens->size; j++) {
+          vector_push(tokens, (token_t *)expanded_tokens->data[j]);
+        }
+        vector_free(expanded_tokens);
+        continue;
+      }
+    }
     vector_push(tokens, token);
   }
   for (int i = 0; i < tokens->size; i++) {
@@ -86,13 +252,88 @@ static vector_t *subst(parse_t *parse, macro_t *macro, vector_t *hideset) {
   return tokens;
 }
 
-static void expand_macro(parse_t *parse, macro_t *macro, vector_t *hideset) {
-  vector_t *tokens = subst(parse, macro, hideset);
+static void expand_macro(parse_t *parse, macro_t *macro, vector_t *args, vector_t *hideset, bool is_space) {
+  vector_t *tokens = subst(parse, macro, args, hideset);
+  if (macro->args != NULL) {
+    assert(args != NULL);
+    if (args->size > macro->args->size) {
+      errorf("too many arguments provided to function-like macro invocation");
+    } else if (args->size < macro->args->size) {
+      errorf("too few arguments provided to function-like macro invocation");
+    }
+  }
   for (int i = tokens->size - 1; i >= 0; i--) {
     token_t *token = (token_t *)tokens->data[i];
+    if (i == 0) {
+      token->is_space = is_space;
+    }
     lex_unget_token(parse->lex, token);
   }
   vector_free(tokens);
+}
+
+static vector_t *function_list_arg(parse_t *parse, bool is_vaargs) {
+  vector_t *tokens = vector_new();
+  int level = 0;
+  for (;;) {
+    token_t *token = lex_get_token(parse->lex);
+    if (token->kind == TOKEN_KIND_EOF) {
+      errorf("unterminated function-like macro invocation");
+    }
+    if (token->kind == TOKEN_KIND_NEWLINE) {
+      continue;
+    }
+    if (token->kind != TOKEN_KIND_KEYWORD) {
+      vector_push(tokens, token);
+      continue;
+    }
+    if (level == 0) {
+      if (token->keyword == ')') {
+        lex_unget_token(parse->lex, token);
+        break;
+      }
+      if (!is_vaargs && token->keyword == ',') {
+        lex_unget_token(parse->lex, token);
+        break;
+      }
+    }
+    if (token->keyword == '(') {
+      level++;
+    } else if (token->keyword == ')') {
+      level--;
+    }
+    vector_push(tokens, token);
+  }
+  return tokens;
+}
+
+static vector_t *function_like_args(parse_t *parse, macro_t *macro) {
+  if (!lex_next_keyword_is(parse->lex, '(')) {
+    return NULL;
+  }
+  vector_t *args = vector_new();
+  token_t *token = lex_next_keyword_is(parse->lex, ')');
+  if (token != NULL) {
+    if (macro->args->size == 0) {
+      return args;
+    }
+    lex_unget_token(parse->lex, token);
+  }
+  for (map_entry_t *e = macro->args->top; e != NULL; e = e->next) {
+    token_t *arg = (token_t *)e->val;
+    vector_push(args, function_list_arg(parse, arg->is_vaargs));
+    if (lex_next_keyword_is(parse->lex, ')')) {
+      break;
+    }
+    lex_expect_keyword_is(parse->lex, ',');
+  }
+  if (macro->args->size > 0) {
+    token_t *last_arg = (token_t *)macro->args->bottom->val;
+    if (last_arg->is_vaargs && args->size == macro->args->size - 1) {
+      vector_push(args, vector_new());
+    }
+  }
+  return args;
 }
 
 token_t *cpp_get_token(parse_t *parse) {
@@ -107,7 +348,20 @@ token_t *cpp_get_token(parse_t *parse) {
         if (token_exists_hideset(token, macro)) {
           return token;
         }
-        expand_macro(parse, macro, token->hideset);
+        if (macro->args == NULL) {
+          expand_macro(parse, macro, NULL, token->hideset, token->is_space);
+        } else {
+          vector_t *args = function_like_args(parse, macro);
+          if (args == NULL) {
+            return token;
+          }
+          expand_macro(parse, macro, args, token->hideset, token->is_space);
+          for (int i = 0; i < args->size; i++) {
+            vector_t *arg = (vector_t *)args->data[i];
+            vector_free(arg);
+          }
+          vector_free(args);
+        }
         continue;
       }
     }

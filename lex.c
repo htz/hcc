@@ -51,6 +51,7 @@ void lex_free(lex_t *lex) {
 static void mark_pos(lex_t *lex) {
   lex->mark_line = lex->line;
   lex->mark_column = lex->column;
+  lex->mark_p = lex->p;
 }
 
 static void push_line(lex_t *lex) {
@@ -267,7 +268,9 @@ token_t *lex_get_token(lex_t *lex) {
   if (lex->tbuf->size > 0) {
     return (token_t *)vector_pop(lex->tbuf);
   }
+  lex->is_space = false;
   mark_pos(lex);
+  char *start_p = lex->mark_p;
 retry:
   for (;;) {
     c = get_char(lex);
@@ -275,28 +278,37 @@ retry:
       return token_new(lex, TOKEN_KIND_EOF);
     }
     if (c == ' ' || c == '\t' || c == '\v') {
+      lex->is_space = true;
       continue;
     }
     if (c == '\n') {
+      lex->is_space = true;
       return token_new(lex, TOKEN_KIND_NEWLINE);
     }
     if (c == '\r') {
       next_char(lex, '\n');
+      lex->is_space = true;
       return token_new(lex, TOKEN_KIND_NEWLINE);
     }
     if (c == '\\') {
       c = get_char(lex);
       if (c == '\n') {
+        lex->is_space = true;
         continue;
       }
       if (c == '\r') {
         next_char(lex, '\n');
+        lex->is_space = true;
         continue;
       }
       unget_char(lex, c);
     }
     break;
   }
+  if (start_p != lex->p - 1 || (lex->line > 1 && lex->column - 1 == 1)) {
+    lex->is_space = true;
+  }
+  lex->mark_p = lex->p - 1;
   if (isdigit(c)) {
     if (c == '0') {
       c = get_char(lex);
@@ -426,6 +438,7 @@ retry:
           return token_new(lex, TOKEN_KIND_EOF);
         }
         if (c == '\n') {
+          lex->is_space = true;
           goto retry;
         }
       }
@@ -442,6 +455,7 @@ retry:
             return token_new(lex, TOKEN_KIND_EOF);
           }
           if (c == '/') {
+            lex->is_space = true;
             goto retry;
           }
         }
@@ -506,9 +520,14 @@ retry:
       return new_keyword(lex, OP_NE);
     }
     return new_keyword(lex, '!');
+  case '#':
+    if (next_char(lex, '#')) {
+      return new_keyword(lex, OP_HASHHASH);
+    }
+    return new_keyword(lex, '#');
   case '(': case ')': case ',': case ';':
   case '[': case ']': case '{': case '}':
-  case '?': case ':': case '~': case '#':
+  case '?': case ':': case '~':
     return new_keyword(lex, c);
   case '.':
     c = get_char(lex);
@@ -516,6 +535,12 @@ retry:
     if (isdigit(c)) {
       unget_char(lex, '.');
       return read_number(lex, 10);
+    }
+    if (next_char(lex, '.')) {
+      if (next_char(lex, '.')) {
+        return new_keyword(lex, TOKEN_KEYWORD_ELLIPSIS);
+      }
+      unget_char(lex, '.');
     }
     return new_keyword(lex, '.');
   case '\0':
