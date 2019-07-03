@@ -1910,3 +1910,7 @@ parse_t *parse_file(FILE *fp) {
   }
   return parse;
 }
+
+node_t *parse_constant_expression(parse_t *parse) {
+  return constant_expression(parse);
+}

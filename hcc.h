@@ -443,12 +443,18 @@ const char *token_str(token_t *token);
 lex_t *lex_new(FILE *fp);
 lex_t *lex_new_string(string_t *str);
 void lex_free(lex_t *lex);
+char lex_get_char(lex_t *lex);
+void lex_unget_char(lex_t *lex, char c);
 token_t *lex_get_token(lex_t *lex);
 void lex_unget_token(lex_t *lex, token_t *token);
 token_t *lex_next_token_is(lex_t *lex, int kind);
 token_t *lex_expect_token_is(lex_t *lex, int k);
 token_t *lex_next_keyword_is(lex_t *lex, int k);
 token_t *lex_expect_keyword_is(lex_t *lex, int k);
+void lex_skip_whitespace(lex_t *lex);
+void lex_skip_char(lex_t *lex);
+void lex_skip_string(lex_t *lex);
+void lex_skip_line(lex_t *lex);
 
 // node.c
 node_t *node_new_nop(parse_t *parse);
@@ -481,6 +487,7 @@ void node_debug(node_t *node);
 // parse.c
 void parse_free(parse_t *parse);
 parse_t *parse_file(FILE *fp);
+node_t *parse_constant_expression(parse_t *parse);
 
 // macro.c
 macro_t *macro_new();

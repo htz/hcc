@@ -176,6 +176,126 @@ static void test_noarg() {
   expect(55, NOARG());
 }
 
+static void test_null() {
+  #
+}
+
+static void test_cond_incl() {
+  int a = 1;
+#if 0
+  a = 2;
+#endif
+  expect(1, a);
+
+#if 0
+  fail("if 0");
+xyz    /*
+#else
+abc    */
+  fail("if 0");
+#endif
+
+/*
+*/#if 0
+  fail("if 0");
+xyz "\"/*" '\'/*'
+#else
+  a = 5;
+#endif
+  expect(a, 5);
+
+#if 0
+#elif 1
+  a = 2;
+#endif
+  expect(2, a);
+
+#if 1
+  a = 3;
+#elif 1
+  a = 4;
+#endif
+  expect(3, a);
+
+#if 1
+  a = 5;
+#endif
+  expect(5, a);
+
+#if 1
+  a = 10;
+#else
+  a = 12;
+#endif
+  expect(10, a);
+
+#if 0
+  a = 11;
+#else
+  a = 12;
+#endif
+  expect(12, a);
+
+#if 0
+# if 1
+# endif
+#else
+  a = 150;
+#endif
+  expect(150, a);
+}
+
+static void test_defined() {
+  int a = 0;
+#if defined ZERO
+  a = 1;
+#endif
+  expect(1, a);
+#if defined(ZERO)
+  a = 2;
+#endif
+  expect(2, a);
+#if defined(NO_SUCH_MACRO)
+  a = 3;
+#else
+  a = 4;
+#endif
+  expect(4, a);
+}
+
+static void test_ifdef() {
+  int a = 0;
+#ifdef ONE
+  a = 1;
+#else
+  a = 2;
+// #
+// #1234
+#endif
+  expect(a, 1);
+
+#ifdef NO_SUCH_MACRO
+  a = 3;
+#else
+  a = 4;
+#endif
+  expect(a, 4);
+
+#ifndef ONE
+  a = 5;
+#else
+  a = 6;
+#endif
+  expect(a, 6);
+
+#ifndef NO_SUCH_MACRO
+  a = 7;
+#else
+  a = 8;
+#endif
+  expect(a, 7);
+}
+
 void testmain() {
   test_basic();
   test_loop();
@@ -183,4 +303,9 @@ void testmain() {
   test_function_like();
   test_funclike();
   test_empty();
+  test_noarg();
+  test_null();
+  test_cond_incl();
+  test_defined();
+  test_ifdef();
 }

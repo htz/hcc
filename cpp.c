@@ -5,6 +5,13 @@
 
 static void preprocessor_define(parse_t *parse);
 static void preprocessor_undef(parse_t *parse);
+static vector_t *preprocessor_if(parse_t *parse, bool cond);
+static vector_t *preprocessor_ifdef(parse_t *parse);
+static vector_t *preprocessor_ifndef(parse_t *parse);
+static void preprocessor_skip_body(parse_t *parse);
+static vector_t *preprocessor_if_body(parse_t *parse, bool cond);
+static vector_t *preprocessor_else(parse_t *parse, bool cond);
+static token_t *cpp_get_token_new_line(parse_t *parse);
 
 static token_t *macro_param(parse_t *parse, int position, bool is_vaargs) {
   token_t *arg = token_new(parse->lex, TOKEN_MACRO_PARAM);
@@ -86,6 +93,173 @@ static void preprocessor_undef(parse_t *parse) {
   }
 }
 
+static bool read_defined_op(parse_t *parse) {
+  token_t *name;
+  if (lex_next_keyword_is(parse->lex, '(')) {
+    name = lex_expect_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+    lex_expect_keyword_is(parse->lex, ')');
+  } else {
+    name = lex_expect_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+  }
+  return map_get(parse->macros, name->identifier) != NULL;
+}
+
+static bool read_constexpr(parse_t *parse) {
+  vector_t *tokens = vector_new();
+  for (int i = 0;; i++) {
+    token_t *token = cpp_get_token_new_line(parse);
+    if (token->kind == TOKEN_KIND_NEWLINE) {
+      break;
+    } else if (token->kind == TOKEN_KIND_IDENTIFIER) {
+      if (strcmp("defined", token->identifier) == 0) {
+        token = token_new(parse->lex, TOKEN_KIND_INT);
+        token->ival = read_defined_op(parse);
+      } else {
+        token = token_new(parse->lex, TOKEN_KIND_INT);
+        token->ival = 0;
+      }
+    }
+    vector_push(tokens, token);
+  }
+  vector_push(tokens, token_new(parse->lex, TOKEN_KIND_EOF));
+  for (int i = tokens->size - 1; i >= 0; i--) {
+    token_t *token = (token_t *)tokens->data[i];
+    lex_unget_token(parse->lex, token);
+  }
+  node_t *cond = parse_constant_expression(parse);
+  cpp_next_token_is(parse, TOKEN_KIND_EOF);
+  assert(cond->kind == NODE_KIND_LITERAL);
+  if (type_is_int(cond->type)) {
+    return cond->ival != 0;
+  }
+  if (type_is_float(cond->type)) {
+    return cond->fval != 0;
+  }
+  return true;
+}
+
+static vector_t *preprocessor_if(parse_t *parse, bool cond) {
+  cond = !cond && read_constexpr(parse);
+  return preprocessor_if_body(parse, cond);
+}
+
+static vector_t *preprocessor_ifdef(parse_t *parse) {
+  token_t *name = lex_expect_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+  lex_expect_token_is(parse->lex, TOKEN_KIND_NEWLINE);
+  bool cond = map_get(parse->macros, name->identifier) != NULL;
+  return preprocessor_if_body(parse, cond);
+}
+
+static vector_t *preprocessor_ifndef(parse_t *parse) {
+  token_t *name = lex_expect_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+  lex_expect_token_is(parse->lex, TOKEN_KIND_NEWLINE);
+  bool cond = map_get(parse->macros, name->identifier) == NULL;
+  return preprocessor_if_body(parse, cond);
+}
+
+static void preprocessor_skip_body(parse_t *parse) {
+  int nest = 0;
+  for (;;) {
+    bool bol = parse->lex->column == 1;
+    lex_skip_whitespace(parse->lex);
+    char c = lex_get_char(parse->lex);
+    if (c == '\0') {
+      break;
+    }
+    if (c == '\'') {
+      lex_skip_char(parse->lex);
+      continue;
+    }
+    if (c == '"') {
+      lex_skip_string(parse->lex);
+      continue;
+    }
+    if (c != '#' || !bol) {
+      continue;
+    }
+    lex_unget_char(parse->lex, c);
+    token_t *sharp_token = lex_expect_keyword_is(parse->lex, '#');
+    token_t *token = lex_get_token(parse->lex);
+    if (nest == 0 && (strcmp("else", token->str) == 0 || strcmp("elif", token->str) == 0 || strcmp("endif", token->str) == 0)) {
+      lex_unget_token(parse->lex, token);
+      lex_unget_token(parse->lex, sharp_token);
+      break;
+    }
+    if (strcmp("if", token->str) == 0 || strcmp("ifdef", token->str) == 0 || strcmp("ifndef", token->str) == 0) {
+      nest++;
+    } else if (strcmp("endif", token->str) == 0) {
+      nest--;
+    }
+    lex_skip_line(parse->lex);
+  }
+  if (nest > 0) {
+    errorf("unterminated conditional directive");
+  }
+}
+
+static vector_t *preprocessor_if_body(parse_t *parse, bool cond) {
+  vector_t *tokens = NULL;
+  if (cond) {
+    tokens = vector_new();
+    for (;;) {
+      token_t *token = cpp_get_token(parse);
+      if (token->kind == TOKEN_KIND_EOF) {
+        break;
+      }
+      vector_push(tokens, token);
+    }
+  } else {
+    preprocessor_skip_body(parse);
+  }
+
+  lex_next_keyword_is(parse->lex, '#');
+  token_t *token = lex_get_token(parse->lex);
+  assert(token->str != NULL);
+  if (strcmp("elif", token->str) == 0) {
+    vector_t *tmp = preprocessor_if(parse, cond);
+    if (!cond) {
+      assert(tokens == NULL && tmp != NULL);
+      tokens = tmp;
+    }
+  } else if (strcmp("else", token->str) == 0) {
+    vector_t *tmp = preprocessor_else(parse, cond);
+    if (!cond) {
+      assert(tokens == NULL && tmp != NULL);
+      tokens = tmp;
+    }
+  } else {
+    assert(strcmp("endif", token->str) == 0);
+  }
+  if (tokens == NULL) {
+    tokens = vector_new();
+  }
+  return tokens;
+}
+
+static vector_t *preprocessor_else(parse_t *parse, bool cond) {
+  cond = !cond;
+
+  vector_t *tokens = NULL;
+  if (cond) {
+    tokens = vector_new();
+    for (;;) {
+      token_t *token = cpp_get_token(parse);
+      if (token->kind == TOKEN_KIND_EOF) {
+        break;
+      }
+      vector_push(tokens, token);
+    }
+  } else {
+    preprocessor_skip_body(parse);
+  }
+
+  lex_next_keyword_is(parse->lex, '#');
+  token_t *token = lex_get_token(parse->lex);
+  assert(token->str != NULL);
+  assert(strcmp("endif", token->str) == 0);
+  return tokens;
+}
+
 static token_t *preprocessor(parse_t *parse, token_t *hash_token) {
   if (hash_token->kind != TOKEN_KIND_KEYWORD || hash_token->keyword != '#' || hash_token->column > 1) {
     return hash_token;
@@ -94,12 +268,44 @@ static token_t *preprocessor(parse_t *parse, token_t *hash_token) {
   token_t *token = lex_get_token(parse->lex);
   if (token->str == NULL) {
     lex_unget_token(parse->lex, token);
+    return NULL;
   } else if (strcmp("define", token->str) == 0) {
     preprocessor_define(parse);
+    return NULL;
   } else if (strcmp("undef", token->str) == 0) {
     preprocessor_undef(parse);
+    return NULL;
+  } else if (strcmp("", token->str) == 0) {
+    return NULL;
   } else {
-    lex_unget_token(parse->lex, token);
+    vector_t *tokens = NULL;
+    if (strcmp("if", token->str) == 0) {
+      tokens = preprocessor_if(parse, false);
+    } else if (strcmp("ifdef", token->str) == 0) {
+      tokens = preprocessor_ifdef(parse);
+    } else if (strcmp("ifndef", token->str) == 0) {
+      tokens = preprocessor_ifndef(parse);
+    }
+    if (tokens != NULL) {
+      for (int i = tokens->size - 1; i >= 0; i--) {
+        token_t *token = (token_t *)tokens->data[i];
+        lex_unget_token(parse->lex, token);
+      }
+      vector_free(tokens);
+      return NULL;
+    }
+  }
+  lex_unget_token(parse->lex, token);
+
+  if (
+    strcmp("elif", token->str) == 0 ||
+    strcmp("else", token->str) == 0 ||
+    strcmp("endif", token->str) == 0
+  ) {
+    lex_unget_token(parse->lex, hash_token);
+    return token_new(parse->lex, TOKEN_KIND_EOF);
+  } else {
+    errorf("invalid preprocessing directive: %s", token->str);
   }
   return NULL;
 }
@@ -336,12 +542,9 @@ static vector_t *function_like_args(parse_t *parse, macro_t *macro) {
   return args;
 }
 
-token_t *cpp_get_token(parse_t *parse) {
+static token_t *cpp_get_token_new_line(parse_t *parse) {
   for (;;) {
     token_t *token = lex_get_token(parse->lex);
-    if (token->kind == TOKEN_KIND_NEWLINE) {
-      continue;
-    }
     if (token->kind == TOKEN_KIND_IDENTIFIER) {
       macro_t *macro = (macro_t *)map_get(parse->macros, token->identifier);
       if (macro != NULL) {
@@ -371,6 +574,15 @@ token_t *cpp_get_token(parse_t *parse) {
     }
   }
   return NULL;
+}
+
+token_t *cpp_get_token(parse_t *parse) {
+  for (;;) {
+    token_t *token = cpp_get_token_new_line(parse);
+    if (token->kind != TOKEN_KIND_NEWLINE) {
+      return token;
+    }
+  }
 }
 
 void cpp_unget_token(parse_t *parse, token_t *token) {
