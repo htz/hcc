@@ -66,7 +66,7 @@ static void push_line(lex_t *lex) {
   vector_push(lex->lines, str);
 }
 
-static char get_char(lex_t *lex) {
+char lex_get_char(lex_t *lex) {
   char c = *lex->p++;
   if (c == '\r') {
     c = *lex->p++;
@@ -87,7 +87,7 @@ static char get_char(lex_t *lex) {
   return c;
 }
 
-static void unget_char(lex_t *lex, char c) {
+void lex_unget_char(lex_t *lex, char c) {
   if (c == '\0') {
     return;
   }
@@ -101,17 +101,17 @@ static void unget_char(lex_t *lex, char c) {
 }
 
 static bool next_char(lex_t *lex, char expact) {
-  char c = get_char(lex);
+  char c = lex_get_char(lex);
   if (c == expact) {
     return true;
   }
-  unget_char(lex, c);
+  lex_unget_char(lex, c);
   return false;
 }
 
 static void move_to(lex_t *lex, char *to) {
   while (lex->p < to) {
-    get_char(lex);
+    lex_get_char(lex);
   }
 }
 
@@ -174,7 +174,7 @@ static token_t *read_number(lex_t *lex, int base) {
 }
 
 static char read_escaped_char(lex_t *lex) {
-  char c = get_char(lex);
+  char c = lex_get_char(lex);
   if (c == '\0') {
     errorf("unterminated char or string");
   }
@@ -195,7 +195,7 @@ static char read_escaped_char(lex_t *lex) {
 }
 
 static token_t *read_char(lex_t *lex) {
-  char c = get_char(lex);
+  char c = lex_get_char(lex);
   if (c == '\0') {
     errorf("unterminated char");
   }
@@ -205,7 +205,7 @@ static token_t *read_char(lex_t *lex) {
   if (c == '\\') {
     c = read_escaped_char(lex);
   }
-  if (get_char(lex) != '\'') {
+  if (lex_get_char(lex) != '\'') {
     errorf("unterminated char");
   }
   token_t *token = token_new(lex, TOKEN_KIND_CHAR);
@@ -216,7 +216,7 @@ static token_t *read_char(lex_t *lex) {
 static token_t *read_string(lex_t *lex) {
   string_t *val = string_new();
   for (;;) {
-    char c = get_char(lex);
+    char c = lex_get_char(lex);
     if (c == '"') {
       break;
     }
@@ -242,11 +242,11 @@ static token_t *new_keyword(lex_t *lex, int k) {
 static token_t *read_identifier(lex_t *lex) {
   string_t *ident = string_new();
   for (;;) {
-    char c = get_char(lex);
+    char c = lex_get_char(lex);
     if (isalnum(c) || c == '_') {
       string_add(ident, c);
     } else {
-      unget_char(lex, c);
+      lex_unget_char(lex, c);
       break;
     }
   }
@@ -273,7 +273,7 @@ token_t *lex_get_token(lex_t *lex) {
   char *start_p = lex->mark_p;
 retry:
   for (;;) {
-    c = get_char(lex);
+    c = lex_get_char(lex);
     if (c == '\0') {
       return token_new(lex, TOKEN_KIND_EOF);
     }
@@ -291,7 +291,7 @@ retry:
       return token_new(lex, TOKEN_KIND_NEWLINE);
     }
     if (c == '\\') {
-      c = get_char(lex);
+      c = lex_get_char(lex);
       if (c == '\n') {
         lex->is_space = true;
         continue;
@@ -301,7 +301,7 @@ retry:
         lex->is_space = true;
         continue;
       }
-      unget_char(lex, c);
+      lex_unget_char(lex, c);
     }
     break;
   }
@@ -311,17 +311,17 @@ retry:
   lex->mark_p = lex->p - 1;
   if (isdigit(c)) {
     if (c == '0') {
-      c = get_char(lex);
+      c = lex_get_char(lex);
       if (c == 'x' || c == 'X') {
         return read_number(lex, 16);
       }
-      unget_char(lex, c);
+      lex_unget_char(lex, c);
       if (isdigit(c)) {
         return read_number(lex, 8);
       }
       return read_number(lex, 10);
     }
-    unget_char(lex, c);
+    lex_unget_char(lex, c);
     return read_number(lex, 10);
   }
   if (c == '\'') {
@@ -331,7 +331,7 @@ retry:
     return read_string(lex);
   }
   if (isalpha(c) || c == '_') {
-    unget_char(lex, c);
+    lex_unget_char(lex, c);
     token_t *token = read_identifier(lex);
     assert(token->kind == TOKEN_KIND_IDENTIFIER);
     if (strcmp("if", token->identifier) == 0) {
@@ -430,7 +430,7 @@ retry:
     }
     if (next_char(lex, '/')) {
       for (;;) {
-        c = get_char(lex);
+        c = lex_get_char(lex);
         if (c == '\0') {
           return token_new(lex, TOKEN_KIND_EOF);
         }
@@ -442,12 +442,12 @@ retry:
     }
     if (next_char(lex, '*')) {
       for (;;) {
-        c = get_char(lex);
+        c = lex_get_char(lex);
         if (c == '\0') {
           return token_new(lex, TOKEN_KIND_EOF);
         }
         if (c == '*') {
-          c = get_char(lex);
+          c = lex_get_char(lex);
           if (c == '\0') {
             return token_new(lex, TOKEN_KIND_EOF);
           }
@@ -527,17 +527,17 @@ retry:
   case '?': case ':': case '~':
     return new_keyword(lex, c);
   case '.':
-    c = get_char(lex);
-    unget_char(lex, c);
+    c = lex_get_char(lex);
+    lex_unget_char(lex, c);
     if (isdigit(c)) {
-      unget_char(lex, '.');
+      lex_unget_char(lex, '.');
       return read_number(lex, 10);
     }
     if (next_char(lex, '.')) {
       if (next_char(lex, '.')) {
         return new_keyword(lex, TOKEN_KEYWORD_ELLIPSIS);
       }
-      unget_char(lex, '.');
+      lex_unget_char(lex, '.');
     }
     return new_keyword(lex, '.');
   case '\0':
@@ -585,4 +585,86 @@ token_t *lex_expect_keyword_is(lex_t *lex, int k) {
     errorf("%c expected, but got %c", k, token->keyword);
   }
   return token;
+}
+
+void lex_skip_whitespace(lex_t *lex) {
+  for (;;) {
+    char c = lex_get_char(lex);
+    if (c == ' ' || c == '\t' || c == '\v') {
+      continue;
+    }
+    if (c == '/') {
+      c = lex_get_char(lex);
+      if (c == '*') {
+        for (;;) {
+          c = lex_get_char(lex);
+          if (c == '\0') {
+            errorf("unterminated conditional directive");
+          }
+          if (c == '*') {
+            c = lex_get_char(lex);
+            if (c == '\0') {
+              errorf("unterminated conditional directive");
+            }
+            if (c == '/') {
+              break;
+            }
+          }
+        }
+        continue;
+      }
+      lex_unget_char(lex, c);
+      c = '/';
+    }
+    lex_unget_char(lex, c);
+    break;
+  }
+}
+
+void lex_skip_char(lex_t *lex) {
+  for (;;) {
+    char c = lex_get_char(lex);
+    if (c == '\\') {
+      lex_get_char(lex);
+      if (c == '\'') {
+        continue;
+      }
+    }
+    if (c == '\0') {
+      errorf("unterminated character");
+    }
+    if (c == '\'') {
+      break;
+    }
+  }
+}
+
+void lex_skip_string(lex_t *lex) {
+  for (;;) {
+    char c = lex_get_char(lex);
+    if (c == '\\') {
+      c = lex_get_char(lex);
+      if (c == '"') {
+        continue;
+      }
+    }
+    if (c == '\0') {
+      errorf("unterminated string");
+    }
+    if (c == '"') {
+      break;
+    }
+  }
+}
+
+void lex_skip_line(lex_t *lex) {
+  for (;;) {
+    char c = lex_get_char(lex);
+    if (c == '\0') {
+      errorf("unterminated conditional directive");
+    }
+    if (c == '\n') {
+      break;
+    }
+  }
 }
