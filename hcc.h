@@ -175,15 +175,24 @@ struct token {
   };
 };
 
+typedef struct file file_t;
+struct file {
+  char *file_name;
+  string_t *src;
+  char *p;
+  vector_t *tbuf;
+  int line;
+  int column;
+  vector_t *lines;
+};
+
 typedef struct lex lex_t;
 struct lex {
-  string_t *src;
-  char *p, *mark_p;
-  vector_t *tbuf;
-  int line, mark_line;
-  int column, mark_column;
+  vector_t *files;
+  char *mark_p;
+  int mark_line;
+  int mark_column;
   vector_t *tokens;
-  vector_t *lines;
   bool is_space;
 };
 
@@ -369,6 +378,8 @@ struct parse {
   type_t *type_ldouble;
   // gen state
   int stackpos;
+  // preprocessor
+  vector_t *include_path;
 };
 
 // vector.c
@@ -401,6 +412,7 @@ void string_print_quote(string_t *str, FILE *out);
 // util.c
 int max(int a, int b);
 void align(int *np, int a);
+string_t *fullpath(char *path);
 
 // type.c
 type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int size);
@@ -429,6 +441,14 @@ bool type_is_float(type_t *type);
 bool type_is_struct(type_t *type);
 bool type_is_function(type_t *type);
 
+// file.c
+file_t *file_new(FILE *fp);
+file_t *file_new_filename(char *file_name);
+file_t *file_new_string(string_t *str);
+void file_free(file_t *f);
+char file_get_char(file_t *f);
+void file_unget_char(file_t *f, char c);
+
 // token.c
 token_t *token_new(lex_t *lex, int kind);
 void token_free(token_t *token);
@@ -443,6 +463,8 @@ const char *token_str(token_t *token);
 lex_t *lex_new(FILE *fp);
 lex_t *lex_new_string(string_t *str);
 void lex_free(lex_t *lex);
+file_t *lex_current_file(lex_t *lex);
+void lex_include(lex_t *lex, char *file_name);
 char lex_get_char(lex_t *lex);
 void lex_unget_char(lex_t *lex, char c);
 token_t *lex_get_token(lex_t *lex);
@@ -487,6 +509,7 @@ void node_debug(node_t *node);
 // parse.c
 void parse_free(parse_t *parse);
 parse_t *parse_file(FILE *fp);
+void parse_include(parse_t *parse, char *file_name);
 node_t *parse_constant_expression(parse_t *parse);
 
 // macro.c

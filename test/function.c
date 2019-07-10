@@ -1,5 +1,5 @@
-void expect(int a, int b);
-int strcmp(char *s1, char *s2);
+#include <string.h>
+#include "test/test.h"
 
 static int t1() {
   return 77;

@@ -6,98 +6,74 @@
 #include <string.h>
 #include "hcc.h"
 
-#define BUFF_SIZE 256
-
-static void push_line(lex_t *lex);
-
-lex_t *lex_new(FILE *fp) {
-  string_t *src = string_new();
-  char buf[BUFF_SIZE];
-  while (fgets(buf, BUFF_SIZE, fp)) {
-    string_append(src, buf);
-  }
-  return lex_new_string(src);
-}
-
-lex_t *lex_new_string(string_t *str) {
+static lex_t *lex_new_file(file_t *f) {
   lex_t *lex = (lex_t *)malloc(sizeof (lex_t));
-  lex->src = str;
-  lex->p = lex->src->buf;
-  lex->tbuf = vector_new();;
-  lex->line = 1;
-  lex->column = 1;
+  lex->files = vector_new();
+  vector_push(lex->files, f);
   lex->tokens = vector_new();
-  lex->lines = vector_new();
-  push_line(lex);
   return lex;
 }
 
+lex_t *lex_new(FILE *fp) {
+  return lex_new_file(file_new(fp));
+}
+
+lex_t *lex_new_string(string_t *str) {
+  return lex_new_file(file_new_string(str));
+}
+
 void lex_free(lex_t *lex) {
-  string_free(lex->src);
-  vector_free(lex->tbuf);
+  for (int i = 0; i < lex->files->size; i++) {
+    file_free((file_t *)lex->files->data[i]);
+  }
+  vector_free(lex->files);
   while (lex->tokens->size > 0) {
     token_t *token = (token_t *)vector_pop(lex->tokens);
     token_free(token);
   }
   vector_free(lex->tokens);
-  while (lex->lines->size > 0) {
-    char *str = (char *)vector_pop(lex->lines);
-    free(str);
-  }
-  vector_free(lex->lines);
   free(lex);
 }
 
-static void mark_pos(lex_t *lex) {
-  lex->mark_line = lex->line;
-  lex->mark_column = lex->column;
-  lex->mark_p = lex->p;
+file_t *lex_current_file(lex_t *lex) {
+  if (lex->files->size == 0) {
+    errorf("no input files");
+  }
+  return (file_t *)lex->files->data[lex->files->size - 1];
 }
 
-static void push_line(lex_t *lex) {
-  char *p = lex->p;
-  while (*p != '\0' && *p != '\r' && *p != '\n') {
-    p++;
-  }
-  int len = p - lex->p;
-  char *str = (char *)malloc(p - lex->p + 1);
-  strncpy(str, lex->p, len);
-  str[len] = '\0';
-  vector_push(lex->lines, str);
+void lex_include(lex_t *lex, char *file_name) {
+  vector_push(lex->files, file_new_filename(file_name));
+}
+
+static void mark_pos(lex_t *lex) {
+  file_t *f = lex_current_file(lex);
+  lex->mark_line = f->line;
+  lex->mark_column = f->column;
+  lex->mark_p = f->p;
 }
 
 char lex_get_char(lex_t *lex) {
-  char c = *lex->p++;
-  if (c == '\r') {
-    c = *lex->p++;
-    if (c != '\n' && c != '\0') {
-      lex->p--;
+  char c;
+  for (;;) {
+    file_t *f = lex_current_file(lex);
+    c = file_get_char(f);
+    if (c != '\0') {
+      break;
     }
-    c = '\n';
-  }
-  if (c == '\n') {
-    if (lex->lines->size < lex->line) {
-      push_line(lex);
+    if (lex->files->size == 1) {
+      break;
     }
-    lex->line++;
-    lex->column = 1;
-  } else {
-    lex->column++;
+    file_free(f);
+    vector_pop(lex->files);
+    mark_pos(lex);
+    return '\n';
   }
   return c;
 }
 
 void lex_unget_char(lex_t *lex, char c) {
-  if (c == '\0') {
-    return;
-  }
-  if (c == '\n') {
-    lex->line--;
-    lex->column = 1;
-  } else {
-    lex->column--;
-  }
-  lex->p--;
+  file_unget_char(lex_current_file(lex), c);
 }
 
 static bool next_char(lex_t *lex, char expact) {
@@ -110,7 +86,8 @@ static bool next_char(lex_t *lex, char expact) {
 }
 
 static void move_to(lex_t *lex, char *to) {
-  while (lex->p < to) {
+  file_t *f = lex_current_file(lex);
+  while (f->p < to) {
     lex_get_char(lex);
   }
 }
@@ -158,16 +135,17 @@ static token_t *read_float(lex_t *lex, double val, char *end) {
 }
 
 static token_t *read_number(lex_t *lex, int base) {
+  file_t *f = lex_current_file(lex);
   char *iend;
-  long ival = strtoul(lex->p, &iend, base);
+  long ival = strtoul(f->p, &iend, base);
   if (base == 10) {
     char *fend;
-    double fval = strtod(lex->p, &fend);
+    double fval = strtod(f->p, &fend);
     if (iend < fend) {
       return read_float(lex, fval, fend);
     }
   }
-  if (base == 16 && lex->p == iend) {
+  if (base == 16 && f->p == iend) {
     errorf("invalid hexadecimal digit");
   }
   return read_integer(lex, ival, iend);
@@ -264,9 +242,10 @@ static token_t *read_unknown(lex_t *lex, char c) {
 }
 
 token_t *lex_get_token(lex_t *lex) {
+  file_t *f = lex_current_file(lex);
   char c;
-  if (lex->tbuf->size > 0) {
-    return (token_t *)vector_pop(lex->tbuf);
+  if (f->tbuf->size > 0) {
+    return (token_t *)vector_pop(f->tbuf);
   }
   lex->is_space = false;
   mark_pos(lex);
@@ -305,10 +284,11 @@ retry:
     }
     break;
   }
-  if (start_p != lex->p - 1 || (lex->line > 1 && lex->column - 1 == 1)) {
+  f = lex_current_file(lex);
+  if (start_p != f->p - 1 || (f->line > 1 && f->column - 1 == 1)) {
     lex->is_space = true;
   }
-  lex->mark_p = lex->p - 1;
+  lex->mark_p = f->p - 1;
   if (isdigit(c)) {
     if (c == '0') {
       c = lex_get_char(lex);
@@ -550,7 +530,8 @@ retry:
 }
 
 void lex_unget_token(lex_t *lex, token_t *token) {
-  vector_push(lex->tbuf, token);
+  file_t *f = lex_current_file(lex);
+  vector_push(f->tbuf, token);
 }
 
 token_t *lex_next_token_is(lex_t *lex, int kind) {

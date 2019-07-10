@@ -3,6 +3,7 @@
 #include <string.h>
 #include "hcc.h"
 
+static void preprocessor_include(parse_t *parse);
 static void preprocessor_define(parse_t *parse);
 static void preprocessor_undef(parse_t *parse);
 static vector_t *preprocessor_if(parse_t *parse, bool cond);
@@ -63,6 +64,84 @@ static macro_t *read_macro(parse_t *parse) {
      vector_push(macro->tokens, token);
   }
   return macro;
+}
+
+static string_t *read_include_filename(parse_t *parse, bool *is_stdp) {
+  token_t *token = cpp_get_token(parse);
+    string_t *file_name = NULL;
+
+  if (token->kind == TOKEN_KIND_NEWLINE || token->kind == TOKEN_KIND_EOF) {
+    goto err;
+  }
+  if (token->kind == TOKEN_KIND_STRING) {
+    file_name = string_dup(token->sval);
+    *is_stdp = false;
+    return file_name;
+  }
+
+  cpp_unget_token(parse, token);
+  cpp_expect_keyword_is(parse, '<');
+  file_name = string_new();
+  for (;;) {
+    char c = lex_get_char(parse->lex);
+    if (c == '\n' || c == '\0') {
+      goto err;
+    }
+    if (c == '>') {
+      break;
+    }
+    string_add(file_name, c);
+  }
+  *is_stdp = true;
+  return file_name;
+
+err:
+  errorf("expected \"FILENAME\" or <FILENAME>");
+}
+
+static bool include_file(parse_t *parse, char *dir, char *file_name) {
+  string_t *path = string_new_with(dir);
+  string_appendf(path, "/%s", file_name);
+  string_t *full = fullpath(path->buf);
+  string_free(path);
+  FILE *fp = fopen(full->buf, "r");
+  if (fp != NULL) {
+    fclose(fp);
+    parse_include(parse, full->buf);
+  }
+  string_free(full);
+  return fp != NULL;
+}
+
+static void preprocessor_include(parse_t *parse) {
+  bool is_std;
+  string_t *file_name = read_include_filename(parse, &is_std);
+
+  if (file_name->buf[0] == '/') {
+    if (!include_file(parse, "", file_name->buf)) {
+      goto err;
+    }
+  } else if (!is_std) {
+    if (!include_file(parse, ".", file_name->buf)) {
+      goto err;
+    }
+  } else {
+    int i;
+    for (i = 0; i < parse->include_path->size; i++) {
+      char *path = (char *)parse->include_path->data[i];
+      if (include_file(parse, path, file_name->buf)) {
+        break;
+      }
+    }
+    if (i == parse->include_path->size) {
+      goto err;
+    }
+  }
+  string_free(file_name);
+  return;
+
+err:
+  errorf("'%s' file not found", file_name->buf);
 }
 
 static void preprocessor_define(parse_t *parse) {
@@ -160,7 +239,7 @@ static vector_t *preprocessor_ifndef(parse_t *parse) {
 static void preprocessor_skip_body(parse_t *parse) {
   int nest = 0;
   for (;;) {
-    bool bol = parse->lex->column == 1;
+    bool bol = lex_current_file(parse->lex)->column == 1;
     lex_skip_whitespace(parse->lex);
     char c = lex_get_char(parse->lex);
     if (c == '\0') {
@@ -268,6 +347,9 @@ static token_t *preprocessor(parse_t *parse, token_t *hash_token) {
   token_t *token = lex_get_token(parse->lex);
   if (token->str == NULL) {
     lex_unget_token(parse->lex, token);
+    return NULL;
+  } else if (strcmp("include", token->str) == 0) {
+    preprocessor_include(parse);
     return NULL;
   } else if (strcmp("define", token->str) == 0) {
     preprocessor_define(parse);

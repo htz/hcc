@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include <stdbool.h>
+
 #define N 8
 
 bool conflict(int *board, int row, int col) {
