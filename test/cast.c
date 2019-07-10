@@ -1,4 +1,4 @@
-void expect(int a, int b);
+#include "test/test.h"
 
 static void test_basic() {
   expect(1, 1 == (int)1.1);

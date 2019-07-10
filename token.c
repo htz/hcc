@@ -31,9 +31,10 @@ token_t *token_new(lex_t *lex, int kind) {
   if (kind == TOKEN_MACRO_PARAM || kind == TOKEN_KIND_EOF || kind == TOKEN_KIND_NEWLINE) {
     token->str = strdup("");
   } else {
-    token->str = malloc(lex->p - lex->mark_p + 1);
-    strncpy(token->str, lex->mark_p, lex->p - lex->mark_p);
-    token->str[lex->p - lex->mark_p] = '\0';
+    file_t *f = lex_current_file(lex);
+    token->str = malloc(f->p - lex->mark_p + 1);
+    strncpy(token->str, lex->mark_p, f->p - lex->mark_p);
+    token->str[f->p - lex->mark_p] = '\0';
   }
   vector_push(lex->tokens, (void *)token);
   return token;

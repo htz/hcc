@@ -1,4 +1,4 @@
-void expect(int a, int b);
+#include "test/test.h"
 
 static void test_primitives() {
   expect(1, sizeof(void));

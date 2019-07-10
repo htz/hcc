@@ -1,4 +1,4 @@
-void expect(int a, int b);
+#include "test/test.h"
 
 static int testif1() { if (1) { return 'a';} return 0; }
 static int testif2() { if (0) { return 0;} return 'b'; }

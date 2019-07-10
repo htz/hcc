@@ -1857,7 +1857,15 @@ static parse_t *parse_new(FILE *fp) {
   parse->type_ldouble = type_new("long double", TYPE_KIND_LDOUBLE, false, NULL);
   type_add(parse, parse->type_ldouble->name, parse->type_ldouble);
 
-  type_add_typedef(parse, "bool", parse->type_bool);
+  parse->include_path = vector_new();
+  vector_push(parse->include_path, BUILD_DIR "/include");
+  vector_push(parse->include_path, "/usr/include");
+  vector_push(parse->include_path, "/usr/local/include");
+  vector_push(parse->include_path, "/usr/lib/gcc/x86_64-linux-gnu/7/include");
+  vector_push(parse->include_path, "/usr/include/x86_64-linux-gnu");
+  vector_push(parse->include_path, "/usr/include/linux");
+
+  parse_include(parse, BUILD_DIR "/include/hcc.h");
 
   return parse;
 }
@@ -1876,6 +1884,7 @@ void parse_free(parse_t *parse) {
   map_free(parse->tags);
   parse->macros->free_val_fn = (void (*)(void *))macro_free;
   map_free(parse->macros);
+  vector_free(parse->include_path);
   free(parse);
 }
 
@@ -1888,6 +1897,10 @@ parse_t *parse_file(FILE *fp) {
     vector_push(parse->statements, external_declaration(parse));
   }
   return parse;
+}
+
+void parse_include(parse_t *parse, char *file_name) {
+  lex_include(parse->lex, file_name);
 }
 
 node_t *parse_constant_expression(parse_t *parse) {

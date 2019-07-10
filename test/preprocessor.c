@@ -1,6 +1,4 @@
-void expect(int a, int b);
-void expect_string(char *a, char *b);
-void expect_double(double a, double b);
+#include "test/test.h"
 
 #define ZERO 0
 #define ONE 1
