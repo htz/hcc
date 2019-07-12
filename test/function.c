@@ -1,3 +1,4 @@
+#include <stdarg.h>
 #include <string.h>
 #include "test/test.h"
 
@@ -73,6 +74,53 @@ static int t10(int a, int, int c) {
   expect(3, c);
 }
 
+static void test_int(int a, ...) {
+  va_list ap;
+  va_start(ap, a);
+  expect(1, a);
+  expect(2, va_arg(ap, int));
+  expect(3, va_arg(ap, int));
+  expect(5, va_arg(ap, int));
+  expect(8, va_arg(ap, int));
+  va_end(ap);
+}
+
+static void test_float(float a, ...) {
+  va_list ap;
+  va_start(ap, a);
+  expect_float(1.0, a);
+  expect_double(2.0, va_arg(ap, double));
+  expect_double(4.0, va_arg(ap, double));
+  expect_double(8.0, va_arg(ap, double));
+  va_end(ap);
+}
+
+static void test_mix(char *p, ...) {
+  va_list ap;
+  va_start(ap, p);
+  expect_string("abc", p);
+  expect_double(2.0, va_arg(ap, double));
+  expect(4, va_arg(ap, int));
+  expect_string("d", va_arg(ap, char *));
+  expect(5, va_arg(ap, int));
+  va_end(ap);
+}
+
+char *fmt(char *fmt, ...) {
+  static char buf[100];
+  va_list ap;
+  va_start(ap, fmt);
+  vsprintf(buf, fmt, ap);
+  va_end(ap);
+  return buf;
+}
+
+static void test_va_list() {
+  expect_string("", fmt(""));
+  expect_string("1,2,3,4", fmt("%d,%d,%d,%d", 1, 2, 3, 4));
+  // expect_string("3,1.0,6,2.0,abc", fmt("%d,%.1f,%d,%.1f,%s", 3, 1.0, 6, 2.0, "abc"));
+}
+
 void testmain() {
   expect(77, t1());
   t2(79);
@@ -84,4 +132,9 @@ void testmain() {
   expect(0, t8("test"));
   expect(94, t9(1, 1.23, 2, 2.34, 3, 3.45, 4, 4.56, 5, 5.67, 6, 6.78, 7, 7.89, 8, 8.90, 9, 9.01));
   t10(1, 2, 3);
+
+  test_int(1, 2, 3, 5, 8);
+  test_float(1.0, 2.0, 4.0, 8.0);
+  test_mix("abc", 2.0, 4, "d", 5);
+  test_va_list();
 }

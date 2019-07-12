@@ -7,15 +7,15 @@
 #include "hcc.h"
 
 static node_t *external_declaration(parse_t *parse);
-static node_t *function_definition(parse_t *parse, node_t *var, vector_t *args);
+static node_t *function_definition(parse_t *parse, node_t *var, vector_t *args, bool ellipsis);
 static type_t *declaration_specifier(parse_t *parse, int *sclassp);
 static type_t *struct_or_union_specifier(parse_t *parse, bool is_struct);
 static void struct_declaration(parse_t *parse, type_t *type, type_t *field_type);
 static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type);
 static type_t *declarator_array(parse_t *parse, type_t *type);
-static node_t *variable_declarator(parse_t *parse, type_t *type, int sclass, vector_t **argsp);
-static type_t *declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp);
-static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp);
+static node_t *variable_declarator(parse_t *parse, type_t *type, int sclass, vector_t **argsp, bool *ellipsisp);
+static type_t *declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp, bool *ellipsisp);
+static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp, bool *ellipsisp);
 static node_t *eval_constant_expression(parse_t *parse, node_t *node);
 static node_t *constant_expression(parse_t *parse);
 static node_t *conditional_expression(parse_t *parse);
@@ -215,7 +215,7 @@ static node_t *external_declaration(parse_t *parse) {
   }
   if (sclass == STORAGE_CLASS_TYPEDEF) {
     for (;;) {
-      node_t *var = variable_declarator(parse, type, STORAGE_CLASS_NONE, NULL);
+      node_t *var = variable_declarator(parse, type, STORAGE_CLASS_NONE, NULL, NULL);
       type_add_typedef(parse, var->vname, var->type);
       if (cpp_next_keyword_is(parse, ';')) {
         break;
@@ -230,7 +230,8 @@ static node_t *external_declaration(parse_t *parse) {
 
   node_t *node;
   vector_t *args = NULL;
-  node_t *var = variable_declarator(parse, type, sclass, &args);
+  bool is_vaargs = false;
+  node_t *var = variable_declarator(parse, type, sclass, &args, &is_vaargs);
   if (type_is_function(var->type)) {
     assert(parse->current_scope == NULL);
     node_t *n = find_variable(parse, parse->current_scope, var->vname);
@@ -242,7 +243,7 @@ static node_t *external_declaration(parse_t *parse) {
 
     assert(args != NULL);
     if (cpp_next_keyword_is(parse, '{')) {
-      node = function_definition(parse, var, args);
+      node = function_definition(parse, var, args, is_vaargs);
       vector_free(args);
       return node;
     }
@@ -259,7 +260,7 @@ static node_t *external_declaration(parse_t *parse) {
 
   node_t *prev = node;
   while (cpp_next_keyword_is(parse, ',')) {
-    var = variable_declarator(parse, type, sclass, NULL);
+    var = variable_declarator(parse, type, sclass, NULL, NULL);
     if (type_is_function(var->type)) {
       node_t *n = find_variable(parse, parse->current_scope, var->vname);
       if (n == NULL) {
@@ -277,10 +278,10 @@ static node_t *external_declaration(parse_t *parse) {
   return node;
 }
 
-static node_t *function_definition(parse_t *parse, node_t *var, vector_t *args) {
+static node_t *function_definition(parse_t *parse, node_t *var, vector_t *args, bool is_vaargs) {
   vector_t *fargs = vector_new();
   node_t *scope = node_new_block(parse, BLOCK_KIND_DEFAULT, vector_new(), NULL);
-  node_t *node = node_new_function(parse, var, fargs, scope);
+  node_t *node = node_new_function(parse, var, fargs, is_vaargs, scope);
   parse->current_function = node;
   parse->current_scope = scope;
   parse->next_scope = scope;
@@ -569,7 +570,7 @@ static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type) 
   }
 
   char *name;
-  field_type = declarator(parse, field_type, &name, NULL);
+  field_type = declarator(parse, field_type, &name, NULL, NULL);
   if (field_type->kind == TYPE_KIND_VOID) {
     errorf("void is not allowed");
   }
@@ -601,23 +602,23 @@ static type_t *declarator_array(parse_t *parse, type_t *type) {
   return type;
 }
 
-static node_t *variable_declarator(parse_t *parse, type_t *type, int sclass, vector_t **argsp) {
+static node_t *variable_declarator(parse_t *parse, type_t *type, int sclass, vector_t **argsp, bool *ellipsisp) {
   char *name;
-  type = declarator(parse, type, &name, argsp);
+  type = declarator(parse, type, &name, argsp, ellipsisp);
   if (parse->current_function) {
     return node_new_variable(parse, type, name, sclass, false);
   }
   return node_new_variable(parse, type, name, sclass, true);
 }
 
-static type_t *declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp) {
+static type_t *declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp, bool *ellipsisp) {
   while (cpp_next_keyword_is(parse, '*')) {
     type = type_get_ptr(parse, type);
   }
-  return direct_declarator(parse, type, namep, argsp);
+  return direct_declarator(parse, type, namep, argsp, ellipsisp);
 }
 
-static type_t *direct_declarator_tail(parse_t *parse, type_t *type, vector_t **argsp) {
+static type_t *direct_declarator_tail(parse_t *parse, type_t *type, vector_t **argsp, bool *ellipsisp) {
   if (cpp_next_keyword_is(parse, '[')) {
     node_t *size = NULL;
     if (!cpp_next_keyword_is(parse, ']')) {
@@ -633,6 +634,7 @@ static type_t *direct_declarator_tail(parse_t *parse, type_t *type, vector_t **a
   } else if (cpp_next_keyword_is(parse, '(')) {
     vector_t *args = vector_new();
     vector_t *argtypes = vector_new();
+    bool ellipsis = false;
     while (!cpp_next_keyword_is(parse, ')')) {
       if (args->size > 0) {
         cpp_expect_keyword_is(parse, ',');
@@ -640,7 +642,15 @@ static type_t *direct_declarator_tail(parse_t *parse, type_t *type, vector_t **a
       int sclass = STORAGE_CLASS_NONE;
       char *name = NULL;
       type_t *t = declaration_specifier(parse, &sclass);
-      t = declarator(parse, t, &name, NULL);
+      if (t == NULL) {
+        if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_ELLIPSIS) != NULL) {
+          ellipsis = true;
+          cpp_expect_keyword_is(parse, ')');
+          break;
+        }
+        errorf("expected parameter declarator");
+      }
+      t = declarator(parse, t, &name, NULL, NULL);
       if (t->kind == TYPE_KIND_VOID) {
         if (args->size == 0 && name == NULL) {
           cpp_expect_keyword_is(parse, ')');
@@ -654,11 +664,14 @@ static type_t *direct_declarator_tail(parse_t *parse, type_t *type, vector_t **a
       vector_push(args, name);
       vector_push(argtypes, t);
     }
-    type = type_get_function(parse, type, argtypes);
+    type = type_get_function(parse, type, argtypes, ellipsis);
     if (argsp) {
       *argsp = args;
     } else {
       vector_free(args);
+    }
+    if (ellipsisp) {
+      *ellipsisp = true;
     }
     vector_free(argtypes);
   }
@@ -677,17 +690,17 @@ static type_t *join_stub_type(parse_t *parse, type_t *base, type_t *stub) {
     return type_get_ptr(parse, base);
   }
   if (type_is_function(stub)) {
-    return type_get_function(parse, base, stub->argtypes);
+    return type_get_function(parse, base, stub->argtypes, stub->is_vaargs);
   }
   errorf("internal error");
 }
 
-static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp) {
+static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep, vector_t **argsp, bool *ellipsisp) {
   if (cpp_next_keyword_is(parse, '(')) {
     type_t *stub = type_new_stub();
-    type_t *tmp = declarator(parse, stub, namep, argsp);
+    type_t *tmp = declarator(parse, stub, namep, argsp, ellipsisp);
     cpp_expect_keyword_is(parse, ')');
-    type = direct_declarator_tail(parse, type, argsp);
+    type = direct_declarator_tail(parse, type, argsp, ellipsisp);
     type = join_stub_type(parse, type, tmp);
     type_free(stub);
     return type;
@@ -699,7 +712,7 @@ static type_t *direct_declarator(parse_t *parse, type_t *type, char **namep, vec
       *namep = token->identifier;
     }
   }
-  return direct_declarator_tail(parse, type, argsp);
+  return direct_declarator_tail(parse, type, argsp, ellipsisp);
 }
 
 static node_t *eval_constant_binary_expression_int(parse_t *parse, int op, node_t *left, node_t *right) {
@@ -1116,40 +1129,40 @@ static node_t *unary_expression(parse_t *parse) {
       errorf("expression is not assignable");
     }
   } else if (cpp_next_keyword_is(parse, '+')) {
-    node_t *node = unary_expression(parse);
+    node_t *node = cast_expression(parse);
     if (node->kind == NODE_KIND_LITERAL && node->type->kind == TYPE_KIND_INT) {
       return node;
     }
     return node_new_unary_op(parse, node->type, '+', node);
   } else if (cpp_next_keyword_is(parse, '-')) {
-    node_t *node = unary_expression(parse);
+    node_t *node = cast_expression(parse);
     if (node->kind == NODE_KIND_LITERAL && node->type->kind == TYPE_KIND_INT) {
       node->ival *= -1;
       return node;
     }
     return node_new_unary_op(parse, node->type, '-', node);
   } else if (cpp_next_keyword_is(parse, '~')) {
-    node_t *node = unary_expression(parse);
+    node_t *node = cast_expression(parse);
     if (node->kind == NODE_KIND_LITERAL && node->type->kind == TYPE_KIND_INT) {
       node->ival = ~node->ival;
       return node;
     }
     return node_new_unary_op(parse, node->type, '~', node);
   } else if (cpp_next_keyword_is(parse, '!')) {
-    node_t *node = unary_expression(parse);
+    node_t *node = cast_expression(parse);
     if (node->kind == NODE_KIND_LITERAL && node->type->kind == TYPE_KIND_INT) {
       node->ival = !node->ival;
       return node;
     }
     return node_new_unary_op(parse, node->type, '!', node);
   } else if (cpp_next_keyword_is(parse, '*')) {
-    node_t *node = unary_expression(parse);
+    node_t *node = cast_expression(parse);
     if (node->type->parent == NULL) {
       errorf("pointer type expected, but got %s", node->type->name);
     }
     return node_new_unary_op(parse, node->type->parent, '*', node);
   } else if (cpp_next_keyword_is(parse, '&')) {
-    node_t *node = unary_expression(parse);
+    node_t *node = cast_expression(parse);
     type_t *type = type_get_ptr(parse, node->type);
     if (node->kind == NODE_KIND_VARIABLE || (node->kind == NODE_KIND_UNARY_OP && node->op == '*') || (node->kind == NODE_KIND_BINARY_OP && node->op == '.')) {
       return node_new_unary_op(parse, type, '&', node);
@@ -1172,6 +1185,14 @@ static node_t *unary_expression(parse_t *parse) {
       type = node->type;
     }
     return node_new_int(parse, parse->type_uint, type->total_size);
+  } else if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_TYPECODE)) {
+    cpp_expect_keyword_is(parse, '(');
+    type_t *type = type_name(parse);
+    if (type == NULL) {
+      errorf("type expected");
+    }
+    cpp_expect_keyword_is(parse, ')');
+    return node_new_int(parse, parse->type_int, type->kind);
   }
   return postfix_expression(parse);
 }
@@ -1194,11 +1215,13 @@ static vector_t *func_args(parse_t *parse) {
 
 static void check_call_args(parse_t *parse, node_t *node, vector_t *args) {
   if (node->type->argtypes->size < args->size) {
-    errorf("too few arguments to function '%s'", node->identifier);
+    if (!node->type->is_vaargs) {
+      errorf("too few arguments to function '%s'", node->identifier);
+    }
   } else if (node->type->argtypes->size > args->size) {
     errorf("too many arguments to function '%s'", node->identifier);
   }
-  for (int i = 0; i < args->size; i++) {
+  for (int i = 0; i < node->type->argtypes->size; i++) {
     type_t *t = (type_t *)node->type->argtypes->data[i];
     node_t *arg = (node_t *)args->data[i];
     if (!type_is_assignable(t, arg->type)) {
@@ -1258,13 +1281,13 @@ static node_t *postfix_expression(parse_t *parse) {
       if (node->type->kind == TYPE_KIND_STRUCT) {
         errorf("member reference type '%s' is not a pointer; did you mean to use '.'?", node->type->name);
       }
-      if (node->type->kind != TYPE_KIND_PTR || node->type->parent->kind != TYPE_KIND_STRUCT) {
+      if ((node->type->kind != TYPE_KIND_PTR && node->type->kind != TYPE_KIND_ARRAY) || node->type->parent->kind != TYPE_KIND_STRUCT) {
         errorf("member reference base type '%s' is not a structure or union", node->type->name);
       }
       token_t *token = cpp_expect_token_is(parse, TOKEN_KIND_IDENTIFIER);
       map_entry_t *e = map_find(node->type->parent->fields, token->identifier);
       if (e == NULL) {
-        errorf("no member named '%s' in '%s'", token->identifier, node->type->fields);
+        errorf("no member named '%s' in '%s'", token->identifier, node->type->parent->name);
       }
       node_t *var = (node_t *)e->val;
       node = node_new_unary_op(parse, node->type->parent, '*', node);
@@ -1419,7 +1442,7 @@ static type_t *type_name(parse_t *parse) {
 }
 
 static type_t *abstract_declarator(parse_t *parse, type_t *type) {
-  return declarator(parse, type, NULL, NULL);
+  return declarator(parse, type, NULL, NULL, NULL);
 }
 
 static type_t *make_empty_enum_type(parse_t *parse, token_t *tag) {
@@ -1499,11 +1522,11 @@ static int enumerator(parse_t *parse, type_t *type, int n) {
 }
 
 static node_t *declaration(parse_t *parse, type_t *type, int sclass) {
-  node_t *var = variable_declarator(parse, type, sclass, NULL);
+  node_t *var = variable_declarator(parse, type, sclass, NULL, NULL);
   node_t *node = init_declarator(parse, var);
   node_t *prev = node;
   while (cpp_next_keyword_is(parse, ',')) {
-    var = variable_declarator(parse, type, sclass, NULL);
+    var = variable_declarator(parse, type, sclass, NULL, NULL);
     prev->next = init_declarator(parse, var);
     prev = prev->next;
   }
@@ -1594,7 +1617,7 @@ static node_t *compound_statement(parse_t *parse) {
     if (type != NULL) {
       if (sclass == STORAGE_CLASS_TYPEDEF) {
         for (;;) {
-          node_t *var = variable_declarator(parse, type, sclass, NULL);
+          node_t *var = variable_declarator(parse, type, sclass, NULL, NULL);
           type_add_typedef(parse, var->vname, var->type);
           if (cpp_next_keyword_is(parse, ';')) {
             break;
@@ -1826,6 +1849,8 @@ static parse_t *parse_new(FILE *fp) {
 
   parse->type_void = type_new("void", TYPE_KIND_VOID, false, NULL);
   map_add(parse->types, parse->type_void->name, parse->type_void);
+  parse->type_voidp = type_new("void*", TYPE_KIND_PTR, false, parse->type_void);
+  map_add(parse->types, parse->type_voidp->name, parse->type_voidp);
   parse->type_bool = type_new("_Bool", TYPE_KIND_BOOL, true, NULL);
   type_add(parse, parse->type_bool->name, parse->type_bool);
   parse->type_char = type_new("char", TYPE_KIND_CHAR, true, NULL);
@@ -1856,6 +1881,8 @@ static parse_t *parse_new(FILE *fp) {
   type_add(parse, parse->type_double->name, parse->type_double);
   parse->type_ldouble = type_new("long double", TYPE_KIND_LDOUBLE, false, NULL);
   type_add(parse, parse->type_ldouble->name, parse->type_ldouble);
+
+  builtin_init(parse);
 
   parse->include_path = vector_new();
   vector_push(parse->include_path, BUILD_DIR "/include");

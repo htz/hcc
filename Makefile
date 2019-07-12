@@ -2,7 +2,7 @@ CC := gcc
 CFLAGS=-Wall -Wno-strict-aliasing -std=gnu11 -g -I. -O0 -DBUILD_DIR='"$(shell pwd)"'
 
 PROG := hcc
-SRCS := cpp.c error.c file.c gen.c lex.c macro.c main.c map.c node.c parse.c string.c token.c type.c util.c vector.c
+SRCS := builtin.c cpp.c error.c file.c gen.c lex.c macro.c main.c map.c node.c parse.c string.c token.c type.c util.c vector.c
 OBJS := ${SRCS:%.c=%.o}
 DEPS := ${SRCS:%.c=%.d}
 TESTS := $(patsubst %.c,%.out,$(filter-out test/testmain.c, $(wildcard test/*.c)))
