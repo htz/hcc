@@ -31,7 +31,7 @@ type_t *type_new_with_size(char *name, int kind, int sign, type_t *parent, int s
   t->parent = parent;
   switch (kind) {
   case TYPE_KIND_VOID:
-    t->bytes = 1;
+    t->bytes = 8;
     t->align = 1;
     break;
   case TYPE_KIND_BOOL:
@@ -181,15 +181,22 @@ type_t *type_get_ptr(parse_t *parse, type_t *type) {
   return type;
 }
 
-type_t *type_get_function(parse_t *parse, type_t *rettype, vector_t *argtypes) {
+type_t *type_get_function(parse_t *parse, type_t *rettype, vector_t *argtypes, bool is_vaargs) {
   string_t *name = string_new();
   string_appendf(name, "%s (*)(", rettype->name);
-  for (int i = 0; i < argtypes->size; i++) {
+  int i;
+  for (i = 0; i < argtypes->size; i++) {
     type_t *t = (type_t *)argtypes->data[i];
     if (i > 0) {
       string_append(name, ", ");
     }
     string_appendf(name, "%s", t->name);
+  }
+  if (is_vaargs) {
+    if (i > 0) {
+      string_append(name, ", ");
+    }
+    string_append(name, "...");
   }
   string_append(name, ")");
   type_t *type = (type_t *)map_get(parse->types, name->buf);
@@ -197,6 +204,7 @@ type_t *type_get_function(parse_t *parse, type_t *rettype, vector_t *argtypes) {
     type = type_new(name->buf, TYPE_KIND_FUNCTION, false, NULL);
     type->parent = rettype;
     type->argtypes = vector_dup(argtypes);
+    type->is_vaargs = is_vaargs;
     map_add(parse->types, name->buf, type);
   }
   string_free(name);
@@ -244,9 +252,10 @@ type_t *type_get_by_tag(parse_t *parse, char *tag, bool local_only) {
   return (type_t *)map_get(parse->tags, tag);
 }
 
-void type_add_typedef(parse_t *parse, char *name, type_t *type) {
+type_t *type_add_typedef(parse_t *parse, char *name, type_t *type) {
   type = type_new_typedef(name, type);
   type_add(parse, name, type);
+  return type;
 }
 
 static char *array_leaf_type(type_t *type) {

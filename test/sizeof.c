@@ -1,7 +1,7 @@
 #include "test/test.h"
 
 static void test_primitives() {
-  expect(1, sizeof(void));
+  expect(8, sizeof(void));
   expect(1, sizeof(char));
   expect(2, sizeof(short));
   expect(4, sizeof(int));

@@ -88,7 +88,10 @@ struct type {
       bool is_typedef;
     };
     // function
-    vector_t *argtypes;
+    struct {
+      vector_t *argtypes;
+      bool is_vaargs;
+    };
   };
 };
 
@@ -134,6 +137,7 @@ enum {
   TOKEN_KEYWORD_EXTERN,
   TOKEN_KEYWORD_CONST,
   TOKEN_KEYWORD_ELLIPSIS,
+  TOKEN_KEYWORD_TYPECODE,
   OP_SAL,    // <<
   OP_SAR,    // >>
   OP_EQ,     // ==
@@ -284,6 +288,7 @@ struct node {
     struct {
       node_t *fvar;
       vector_t *fargs;
+      bool is_vaargs;
       node_t *fbody;
       map_t *labels;
     };
@@ -361,6 +366,7 @@ struct parse {
   node_t *next_scope;
   // builtin types
   type_t *type_void;
+  type_t *type_voidp;
   type_t *type_char;
   type_t *type_bool;
   type_t *type_schar;
@@ -376,6 +382,8 @@ struct parse {
   type_t *type_float;
   type_t *type_double;
   type_t *type_ldouble;
+  type_t *type_va_list;
+  type_t *type_va_listp;
   // gen state
   int stackpos;
   // preprocessor
@@ -410,6 +418,7 @@ string_t *string_dup(string_t *str0);
 void string_print_quote(string_t *str, FILE *out);
 
 // util.c
+int min(int a, int b);
 int max(int a, int b);
 void align(int *np, int a);
 string_t *fullpath(char *path);
@@ -427,11 +436,11 @@ type_t *type_find(parse_t *parse, char *name);
 void type_add(parse_t *parse, char *name, type_t *type);
 type_t *type_get(parse_t *parse, char *name, type_t *parent);
 type_t *type_get_ptr(parse_t *parse, type_t *type);
-type_t *type_get_function(parse_t *parse, type_t *rettype, vector_t *argtypes);
+type_t *type_get_function(parse_t *parse, type_t *rettype, vector_t *argtypes, bool is_vaargs);
 type_t *type_get_const(parse_t *parse, type_t *type);
 void type_add_by_tag(parse_t *parse, char *tag, type_t *type);
 type_t *type_get_by_tag(parse_t *parse, char *tag, bool local_only);
-void type_add_typedef(parse_t *parse, char *name, type_t *type);
+type_t *type_add_typedef(parse_t *parse, char *name, type_t *type);
 type_t *type_make_array(parse_t *parse, type_t *parent, int size);
 bool type_is_assignable(type_t *a, type_t *b);
 const char *type_kind_names_str(int kind);
@@ -492,7 +501,7 @@ node_t *node_new_unary_op(parse_t *parse, type_t *type, int op, node_t *operand)
 node_t *node_new_call(parse_t *parse, type_t *type, node_t *func, vector_t *args);
 node_t *node_new_block(parse_t *parse, int kind, vector_t *statements, node_t *parent);
 node_t *node_new_if(parse_t *parse, node_t *cond, node_t *then_body, node_t *else_body);
-node_t *node_new_function(parse_t *parse, node_t *fvar, vector_t *fargs, node_t *fbody);
+node_t *node_new_function(parse_t *parse, node_t *fvar, vector_t *fargs, bool is_vaargs, node_t *fbody);
 node_t *node_new_continue(parse_t *parse);
 node_t *node_new_break(parse_t *parse);
 node_t *node_new_return(parse_t *parse, type_t *type, node_t *retval);
@@ -523,6 +532,9 @@ token_t *cpp_next_token_is(parse_t *parse, int kind);
 token_t *cpp_expect_token_is(parse_t *parse, int k);
 token_t *cpp_next_keyword_is(parse_t *parse, int k);
 void cpp_expect_keyword_is(parse_t *parse, int k);
+
+// builtin.c
+void builtin_init(parse_t *parse);
 
 // gen.c
 void gen(parse_t *parse);

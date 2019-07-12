@@ -137,11 +137,12 @@ node_t *node_new_if(parse_t *parse, node_t *cond, node_t *then_body, node_t *els
   return node;
 }
 
-node_t *node_new_function(parse_t *parse, node_t *fvar, vector_t *fargs, node_t *fbody) {
+node_t *node_new_function(parse_t *parse, node_t *fvar, vector_t *fargs, bool is_vaargs, node_t *fbody) {
   node_t *node = node_new(parse, NODE_KIND_FUNCTION);
   node->type = NULL;
   node->fvar = fvar;
   node->fargs = fargs;
+  node->is_vaargs = is_vaargs;
   node->fbody = fbody;
   node->labels = map_new();
   return node;

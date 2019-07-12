@@ -17,6 +17,24 @@ static void test_type() {
   bool n;
 }
 
+static void test_typecode() {
+  expect(0, __typecode(void));
+  expect(1, __typecode(_Bool));
+  expect(2, __typecode(char));
+  expect(3, __typecode(short));
+  expect(4, __typecode(int));
+  expect(5, __typecode(long));
+  expect(6, __typecode(long long));
+  expect(7, __typecode(float));
+  expect(8, __typecode(double));
+  expect(9, __typecode(long double));
+  expect(10, __typecode(void*));
+  expect(11, __typecode(int[10]));
+  expect(12, __typecode(struct{int a;}));
+  // expect(13, __typecode(enum{a}));
+  expect(14, __typecode(void ()()));
+}
+
 static void test_signed() {
   signed char a;
   signed short b;
@@ -98,6 +116,7 @@ static void test_extern() {
 
 void testmain() {
   test_type();
+  test_typecode();
   test_signed();
   test_unsigned();
   test_pointer();
