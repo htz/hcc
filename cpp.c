@@ -172,6 +172,19 @@ static void preprocessor_undef(parse_t *parse) {
   }
 }
 
+static void preprocessor_error(parse_t *parse) {
+  lex_skip_whitespace(parse->lex);
+  string_t *str = string_new();
+  for (;;) {
+    char c = lex_get_char(parse->lex);
+    if (c == '\r' || c == '\n' || c == '\0') {
+      break;
+    }
+    string_add(str, c);
+  }
+  errorf(str->buf);
+}
+
 static bool read_defined_op(parse_t *parse) {
   token_t *name;
   if (lex_next_keyword_is(parse->lex, '(')) {
@@ -356,6 +369,9 @@ static token_t *preprocessor(parse_t *parse, token_t *hash_token) {
     return NULL;
   } else if (strcmp("undef", token->str) == 0) {
     preprocessor_undef(parse);
+    return NULL;
+  } else if (strcmp("error", token->str) == 0) {
+    preprocessor_error(parse);
     return NULL;
   } else if (strcmp("", token->str) == 0) {
     return NULL;
