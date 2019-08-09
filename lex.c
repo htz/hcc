@@ -1,6 +1,7 @@
 // Copyright 2019 @htz. Released under the MIT license.
 
 #include <ctype.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,9 +36,18 @@ void lex_free(lex_t *lex) {
   free(lex);
 }
 
+static void lex_errorf(lex_t *lex, char *fmt, ...) {
+  file_t *f = lex_current_file(lex);
+  fprintf(stderr, "%s:%d:%d: ", f->file_name, lex->mark_line, lex->mark_column);
+  va_list args;
+  va_start(args, fmt);
+  error_vprintf("ERROR", COLOR_RED, fmt, args);
+  va_end(args);
+}
+
 file_t *lex_current_file(lex_t *lex) {
   if (lex->files->size == 0) {
-    errorf("no input files");
+    lex_errorf(lex, "no input files");
   }
   return (file_t *)lex->files->data[lex->files->size - 1];
 }
@@ -146,7 +156,7 @@ static token_t *read_number(lex_t *lex, int base) {
     }
   }
   if (base == 16 && f->p == iend) {
-    errorf("invalid hexadecimal digit");
+    lex_errorf(lex, "invalid hexadecimal digit");
   }
   return read_integer(lex, ival, iend);
 }
@@ -154,7 +164,7 @@ static token_t *read_number(lex_t *lex, int base) {
 static char read_escaped_char(lex_t *lex) {
   char c = lex_get_char(lex);
   if (c == '\0') {
-    errorf("unterminated char or string");
+    lex_errorf(lex, "unterminated char or string");
   }
   switch (c) {
   case '\'': case '"': case '?': case '\\':
@@ -175,16 +185,16 @@ static char read_escaped_char(lex_t *lex) {
 static token_t *read_char(lex_t *lex) {
   char c = lex_get_char(lex);
   if (c == '\0') {
-    errorf("unterminated char");
+    lex_errorf(lex, "unterminated char");
   }
   if (c == '\'') {
-    errorf("unexpected char expression");
+    lex_errorf(lex, "unexpected char expression");
   }
   if (c == '\\') {
     c = read_escaped_char(lex);
   }
   if (lex_get_char(lex) != '\'') {
-    errorf("unterminated char");
+    lex_errorf(lex, "unterminated char");
   }
   token_t *token = token_new(lex, TOKEN_KIND_CHAR);
   token->ival = c;
@@ -199,7 +209,7 @@ static token_t *read_string(lex_t *lex) {
       break;
     }
     if (c == '\0') {
-      errorf("unterminated string");
+      lex_errorf(lex, "unterminated string");
     }
     if (c == '\\') {
       c = read_escaped_char(lex);
@@ -549,7 +559,7 @@ token_t *lex_next_token_is(lex_t *lex, int kind) {
 token_t *lex_expect_token_is(lex_t *lex, int k) {
   token_t *token = lex_get_token(lex);
   if (token->kind != k) {
-    errorf("%s expected, but got %c", token_name(k), token_str(token));
+    lex_errorf(lex, "%s expected, but got %c", token_name(k), token_str(token));
   }
   return token;
 }
@@ -566,10 +576,10 @@ token_t *lex_next_keyword_is(lex_t *lex, int k) {
 token_t *lex_expect_keyword_is(lex_t *lex, int k) {
   token_t *token = lex_get_token(lex);
   if (token->kind != TOKEN_KIND_KEYWORD) {
-    errorf("%c expected, but not got keyword: %s", k, token_str(token));
+    lex_errorf(lex, "%c expected, but not got keyword: %s", k, token_str(token));
   }
   if (token->keyword != k) {
-    errorf("%c expected, but got %c", k, token->keyword);
+    lex_errorf(lex, "%c expected, but got %c", k, token->keyword);
   }
   return token;
 }
@@ -586,12 +596,12 @@ void lex_skip_whitespace(lex_t *lex) {
         for (;;) {
           c = lex_get_char(lex);
           if (c == '\0') {
-            errorf("unterminated conditional directive");
+            lex_errorf(lex, "unterminated conditional directive");
           }
           if (c == '*') {
             c = lex_get_char(lex);
             if (c == '\0') {
-              errorf("unterminated conditional directive");
+              lex_errorf(lex, "unterminated conditional directive");
             }
             if (c == '/') {
               break;
@@ -618,7 +628,7 @@ void lex_skip_char(lex_t *lex) {
       }
     }
     if (c == '\0') {
-      errorf("unterminated character");
+      lex_errorf(lex, "unterminated character");
     }
     if (c == '\'') {
       break;
@@ -636,7 +646,7 @@ void lex_skip_string(lex_t *lex) {
       }
     }
     if (c == '\0') {
-      errorf("unterminated string");
+      lex_errorf(lex, "unterminated string");
     }
     if (c == '"') {
       break;
@@ -648,7 +658,7 @@ void lex_skip_line(lex_t *lex) {
   for (;;) {
     char c = lex_get_char(lex);
     if (c == '\0') {
-      errorf("unterminated conditional directive");
+      lex_errorf(lex, "unterminated conditional directive");
     }
     if (c == '\n') {
       break;
