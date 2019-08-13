@@ -348,6 +348,9 @@ retry:
     if (strcmp("default", token->identifier) == 0) {
       return new_keyword(lex, TOKEN_KEYWORD_DEFAULT);
     }
+    if (strcmp("goto", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_GOTO);
+    }
     return token;
   }
   switch (c) {

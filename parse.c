@@ -46,7 +46,7 @@ static node_t *init_declarator(parse_t *parse, node_t *var);
 static node_t *initializer(parse_t *parse, type_t *type);
 static node_t *compound_statement(parse_t *parse);
 static node_t *statement(parse_t *parse);
-static node_t *labeled_statement(parse_t *parse, int keyword);
+static node_t *labeled_statement(parse_t *parse, int keyword, char *label);
 static node_t *expression_statement(parse_t *parse);
 static node_t *selection_statement(parse_t *parse, int keyword);
 static node_t *iteration_statement(parse_t *parse, int keyword);
@@ -1399,10 +1399,13 @@ static node_t *statement(parse_t *parse) {
     return selection_statement(parse, TOKEN_KEYWORD_SWITCH);
   }
   if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_CASE)) {
-    return labeled_statement(parse, TOKEN_KEYWORD_CASE);
+    return labeled_statement(parse, TOKEN_KEYWORD_CASE, NULL);
   }
   if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_DEFAULT)) {
-    return labeled_statement(parse, TOKEN_KEYWORD_DEFAULT);
+    return labeled_statement(parse, TOKEN_KEYWORD_DEFAULT, NULL);
+  }
+  if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_GOTO)) {
+    return jump_statement(parse, TOKEN_KEYWORD_GOTO);
   }
   if (lex_next_keyword_is(parse->lex, TOKEN_KEYWORD_CONTINUE)) {
     return jump_statement(parse, TOKEN_KEYWORD_CONTINUE);
@@ -1425,10 +1428,23 @@ static node_t *statement(parse_t *parse) {
   if (lex_next_keyword_is(parse->lex, '{')) {
     return compound_statement(parse);
   }
+  token_t *token = lex_next_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+  if (token != NULL) {
+    if (lex_next_keyword_is(parse->lex, ':')) {
+      return labeled_statement(parse, 0, token->identifier);
+    }
+    lex_unget_token(parse->lex, token);
+  }
   return expression_statement(parse);
 }
 
-static node_t *labeled_statement(parse_t *parse, int keyword) {
+static node_t *labeled_statement(parse_t *parse, int keyword, char *label) {
+  if (label != NULL) {
+    assert(parse->current_function != NULL);
+    node_t *node = node_new_label(parse, label);
+    map_add(parse->current_function->labels, label, node);
+    return node;
+  }
   if (keyword == TOKEN_KEYWORD_CASE) {
     node_t *exp = constant_expression(parse);
     lex_expect_keyword_is(parse->lex, ':');
@@ -1554,6 +1570,11 @@ static node_t *iteration_statement(parse_t *parse, int keyword) {
 static node_t *jump_statement(parse_t *parse, int keyword) {
   assert(parse->current_function != NULL);
   switch (keyword) {
+  case TOKEN_KEYWORD_GOTO:
+    {
+      token_t *label = lex_expect_token_is(parse->lex, TOKEN_KIND_IDENTIFIER);
+      return node_new_goto(parse, label->identifier);
+    }
   case TOKEN_KEYWORD_CONTINUE:
     lex_expect_keyword_is(parse->lex, ';');
     return node_new_continue(parse);

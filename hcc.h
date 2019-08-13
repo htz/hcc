@@ -114,6 +114,7 @@ enum {
   TOKEN_KEYWORD_SWITCH,
   TOKEN_KEYWORD_CASE,
   TOKEN_KEYWORD_DEFAULT,
+  TOKEN_KEYWORD_GOTO,
   OP_SAL,    // <<
   OP_SAR,    // >>
   OP_EQ,     // ==
@@ -179,6 +180,8 @@ enum {
   NODE_KIND_FOR,
   NODE_KIND_SWITCH,
   NODE_KIND_CASE,
+  NODE_KIND_GOTO,
+  NODE_KIND_LABEL,
 };
 
 enum {
@@ -236,6 +239,7 @@ struct node {
       node_t *fvar;
       vector_t *fargs;
       node_t *fbody;
+      map_t *labels;
     };
     // Function call
     struct {
@@ -284,6 +288,8 @@ struct node {
       node_t *cval;
       node_t *cstmt;
     };
+    // goto/label
+    char *label;
   };
 };
 
@@ -407,6 +413,8 @@ node_t *node_new_do(parse_t *parse, node_t *cond, node_t *body);
 node_t *node_new_for(parse_t *parse, node_t *init, node_t *cond, node_t *step, node_t *body);
 node_t *node_new_switch(parse_t *parse, node_t *expr, node_t *body);
 node_t *node_new_case(parse_t *parse, node_t *val, node_t *body);
+node_t *node_new_goto(parse_t *parse, char *label);
+node_t *node_new_label(parse_t *parse, char *label);
 void node_free(node_t *node);
 void node_debug(node_t *node);
 

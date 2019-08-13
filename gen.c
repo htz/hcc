@@ -39,6 +39,7 @@ static void emit_case(parse_t *parse, node_t *node);
 static void emit_continue(parse_t *parse, node_t *node);
 static void emit_break(parse_t *parse, node_t *node);
 static void emit_return(parse_t *parse, node_t *node);
+static void emit_goto(parse_t *parse, node_t *node);
 static void emit_expression(parse_t *parse, node_t *node);
 static void emit_function(parse_t *parse, node_t *node);
 static void emit_global(parse_t *parse, node_t *node);
@@ -1043,6 +1044,15 @@ static void emit_return(parse_t *parse, node_t *node) {
   emitf("ret");
 }
 
+static void emit_goto(parse_t *parse, node_t *node) {
+  assert(parse->current_function != NULL);
+  node_t *label = map_get(parse->current_function->labels, node->label);
+  if (label == NULL) {
+    errorf("label '%s' used but not defined", node->label);
+  }
+  emitf("jmp .L%p", label);
+}
+
 static void emit_expression(parse_t *parse, node_t *node) {
   for (; node; node = node->next) {
     switch (node->kind) {
@@ -1118,6 +1128,12 @@ static void emit_expression(parse_t *parse, node_t *node) {
     case NODE_KIND_CASE:
       emit_case(parse, node);
       break;
+    case NODE_KIND_GOTO:
+      emit_goto(parse, node);
+      break;
+    case NODE_KIND_LABEL:
+      emitf(".L%p:", node);
+      break;
     default:
       errorf("unknown expression node: %d", node->kind);
     }
@@ -1143,6 +1159,9 @@ static int placement_variables(node_t *node, int offset) {
 }
 
 static void emit_function(parse_t *parse, node_t *node) {
+  node_t *old_function = parse->current_function;
+  parse->current_function = node;
+
   parse->stackpos = 8;
   emitf(".text");
   emitf_noindent(".global %s", node->fvar->vname);
@@ -1209,6 +1228,7 @@ static void emit_function(parse_t *parse, node_t *node) {
   emit_expression(parse, node->fbody);
   emitf("leave");
   emitf("ret");
+  parse->current_function = old_function;
 }
 
 static void emit_global_data(parse_t *parse, type_t *type, node_t *val) {

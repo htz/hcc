@@ -138,6 +138,7 @@ node_t *node_new_function(parse_t *parse, node_t *fvar, vector_t *fargs, node_t 
   node->fvar = fvar;
   node->fargs = fargs;
   node->fbody = fbody;
+  node->labels = map_new();
   return node;
 }
 
@@ -249,6 +250,18 @@ node_t *node_new_case(parse_t *parse, node_t *val, node_t *stmt) {
   return node;
 }
 
+node_t *node_new_goto(parse_t *parse, char *label) {
+  node_t *node = node_new(parse, NODE_KIND_GOTO);
+  node->label = strdup(label);
+  return node;
+}
+
+node_t *node_new_label(parse_t *parse, char *label) {
+  node_t *node = node_new(parse, NODE_KIND_LABEL);
+  node->label = strdup(label);
+  return node;
+}
+
 void node_free(node_t *node) {
   switch (node->kind) {
   case NODE_KIND_IDENTIFIER:
@@ -292,6 +305,7 @@ void node_free(node_t *node) {
     break;
   case NODE_KIND_FUNCTION:
     vector_free(node->fargs);
+    map_free(node->labels);
     break;
   case NODE_KIND_CONTINUE: case NODE_KIND_BREAK:
     break;
@@ -303,6 +317,10 @@ void node_free(node_t *node) {
     vector_free(node->cases);
     break;
   case NODE_KIND_CASE:
+    break;
+  case NODE_KIND_GOTO:
+  case NODE_KIND_LABEL:
+    free(node->label);
     break;
   }
   free(node);
