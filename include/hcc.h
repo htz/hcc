@@ -14,16 +14,16 @@
 #define __SIZEOF_PTRDIFF_T__ 8
 #define __SIZEOF_SHORT__ 2
 #define __SIZEOF_SIZE_T__ 8
-#define __STDC_HOSTED__ 1
-#define __STDC_ISO_10646__ 201103L
-#define __STDC_NO_ATOMICS__ 1
-#define __STDC_NO_COMPLEX__ 1
-#define __STDC_NO_THREADS__ 1
-#define __STDC_NO_VLA__ 1
-#define __STDC_UTF_16__ 1
-#define __STDC_UTF_32__ 1
-#define __STDC_VERSION__ 201112L
-#define __STDC__ 1
+// #define __STDC_HOSTED__ 1
+// #define __STDC_ISO_10646__ 201103L
+// #define __STDC_NO_ATOMICS__ 1
+// #define __STDC_NO_COMPLEX__ 1
+// #define __STDC_NO_THREADS__ 1
+// #define __STDC_NO_VLA__ 1
+// #define __STDC_UTF_16__ 1
+// #define __STDC_UTF_32__ 1
+// #define __STDC_VERSION__ 201112L
+// #define __STDC__ 1
 #define __amd64 1
 #define __amd64__ 1
 #define __gnu_linux__ 1
@@ -45,3 +45,6 @@
 #define __volatile__ volatile
 #define __attribute__(x) /* NOTHING */
 
+#define __FILE__ "dummy.c"
+#define __LINE__ 0
+#define BUILD_DIR "/mnt"
