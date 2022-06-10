@@ -9,6 +9,7 @@
 static node_t *external_declaration(parse_t *parse);
 static node_t *function_definition(parse_t *parse, node_t *var, vector_t *args, bool ellipsis);
 static type_t *declaration_specifier(parse_t *parse, int *sclassp);
+static type_t *make_empty_struct_type(parse_t *parse, char *tag, bool is_struct);
 static type_t *struct_or_union_specifier(parse_t *parse, bool is_struct);
 static void struct_declaration(parse_t *parse, type_t *type, type_t *field_type);
 static void struct_declarator(parse_t *parse, type_t *type, type_t *field_type);
@@ -476,11 +477,15 @@ static type_t *declaration_specifier(parse_t *parse, int *sclassp) {
   return type;
 }
 
-static type_t *make_empty_struct_type(parse_t *parse, token_t *tag, bool is_struct) {
+type_t *parse_make_empty_struct_type(parse_t *parse, char *tag, bool is_struct) {
+  return make_empty_struct_type(parse, tag, is_struct);
+}
+
+static type_t *make_empty_struct_type(parse_t *parse, char *tag, bool is_struct) {
   type_t *type = type_new_struct(NULL, is_struct);
   string_t *name = string_new_with(is_struct ? "struct " : "union ");
   if (tag != NULL) {
-    string_append(name, tag->identifier);
+    string_append(name, tag);
   } else {
     string_appendf(name, "$%p", type);
   }
@@ -489,7 +494,7 @@ static type_t *make_empty_struct_type(parse_t *parse, token_t *tag, bool is_stru
 
   type_add(parse, type->name, type);
   if (tag != NULL) {
-    type_add_by_tag(parse, tag->identifier, type);
+    type_add_by_tag(parse, tag, type);
   }
 
   return type;
@@ -498,22 +503,24 @@ static type_t *make_empty_struct_type(parse_t *parse, token_t *tag, bool is_stru
 static type_t *struct_or_union_specifier(parse_t *parse, bool is_struct) {
   token_t *tag = cpp_next_token_is(parse, TOKEN_KIND_IDENTIFIER);
   type_t *type = NULL;
+  char *tag_identifier = NULL;
 
   if (tag != NULL) {
-    type = type_get_by_tag(parse, tag->identifier, false);
+    tag_identifier = tag->identifier;
+    type = type_get_by_tag(parse, tag_identifier, false);
   }
   if (!cpp_next_keyword_is(parse, '{')) {
     if (type == NULL) {
-      type = make_empty_struct_type(parse, tag, is_struct);
+      type = make_empty_struct_type(parse, tag_identifier, is_struct);
     } else if (type->is_struct != is_struct) {
-      errorf("use of '%s' with tag type that does not match previous declaration", tag->identifier);
+      errorf("use of '%s' with tag type that does not match previous declaration", tag_identifier);
     }
     return type;
   }
-  if (type == NULL || type_get_by_tag(parse, tag->identifier, true) == NULL) {
-    type = make_empty_struct_type(parse, tag, is_struct);
+  if (type == NULL || type_get_by_tag(parse, tag_identifier, true) == NULL) {
+    type = make_empty_struct_type(parse, tag_identifier, is_struct);
   } else if (type->fields->size > 0) {
-    errorf("redefinition of '%s'", tag->identifier);
+    errorf("redefinition of '%s'", tag_identifier);
   }
   while (!cpp_next_keyword_is(parse, '}')) {
     int sclass = STORAGE_CLASS_NONE;
@@ -1273,7 +1280,7 @@ static node_t *postfix_expression(parse_t *parse) {
       token_t *token = cpp_expect_token_is(parse, TOKEN_KIND_IDENTIFIER);
       map_entry_t *e = map_find(node->type->fields, token->identifier);
       if (e == NULL) {
-        errorf("no member named '%s' in '%s'", token->identifier, node->type->fields);
+        errorf("no member named '%s' in '%s'", token->identifier, node->type->name);
       }
       node_t *var = (node_t *)e->val;
       node = node_new_binary_op(parse, var->type, '.', node, var);

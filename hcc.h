@@ -508,6 +508,7 @@ void node_free(node_t *node);
 void node_debug(node_t *node);
 
 // parse.c
+type_t *parse_make_empty_struct_type(parse_t *parse, char *tag, bool is_struct);
 void parse_free(parse_t *parse);
 parse_t *parse_file(FILE *fp);
 void parse_include(parse_t *parse, char *file_name);

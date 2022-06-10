@@ -14,7 +14,7 @@
  * typedef struct __builtin_va_list __builtin_va_list;
  */
 static void init_builtin_va_list(parse_t *parse) {
-  type_t *type = type_new_struct("struct __builtin_va_list", true);
+  type_t *type = parse_make_empty_struct_type(parse, "__builtin_va_list", true);
 
   node_t *gp_offset_field = node_new_variable(parse, parse->type_uint, "gp_offset", STORAGE_CLASS_NONE, false);
   align(&type->total_size, gp_offset_field->type->align);
