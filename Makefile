@@ -1,5 +1,5 @@
 CC := gcc
-CFLAGS=-Wall -Wno-strict-aliasing -std=gnu11 -g -I. -O0 -DBUILD_DIR='"$(shell pwd)"'
+CFLAGS=-Wall -Wno-strict-aliasing -std=gnu11 -static -g -I. -O0 -DBUILD_DIR='"$(shell pwd)"'
 
 PROG := hcc
 SRCS := builtin.c cpp.c error.c file.c gen.c lex.c macro.c main.c map.c node.c parse.c string.c token.c type.c util.c vector.c

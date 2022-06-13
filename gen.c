@@ -1226,23 +1226,43 @@ static void emit_function(parse_t *parse, node_t *node) {
       }
     }
 
-    base_offset = 8 * (6 + 8);
+    base_offset = 172; //8 * (6 + 8);
     emit_add_rsp(parse, -base_offset);
-    for (int i = 0; i < 6; i++) {
-      emitf("mov %%%s, %d(%%rbp)", REGS[i], -(base_offset - offset));
-      if (i < iregs->size) {
-        node_t *n = (node_t *)iregs->data[i];
-        n->voffset = base_offset - offset;
+    for (int i = 0; i < iregs->size; i++) {
+      node_t *n = (node_t *)iregs->data[i];
+      offset += n->type->bytes;
+      align(&offset, n->type->align);
+      n->voffset = offset;
+      switch (n->type->bytes) {
+      case 1:
+        emitf("movl %%%s, %%eax", MREGS[i]);
+        emitf("movb %%al, %d(%%rbp)", -n->voffset);
+        break;
+      case 2:
+        emitf("movl %%%s, %%eax", MREGS[i]);
+        emitf("movw %%ax, %d(%%rbp)", -n->voffset);
+        break;
+      case 4:
+        emitf("movl %%%s, %d(%%rbp)", MREGS[i], -n->voffset);
+        break;
+      case 8:
+        emitf("movq %%%s, %d(%%rbp)", REGS[i], -n->voffset);
+        break;
+      default:
+        errorf("invalid variable type");
       }
-      offset += 8;
     }
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < xregs->size; i++) {
       emitf("movsd %%xmm%d, %d(%%rbp)", i, -(base_offset - offset));
-      if (i < xregs->size) {
-        node_t *n = (node_t *)xregs->data[i];
-        n->voffset = base_offset - offset;
+      node_t *n = (node_t *)xregs->data[i];
+      offset += n->type->bytes;
+      align(&offset, n->type->align);
+      n->voffset = offset;
+      if (n->type->kind == TYPE_KIND_FLOAT) {
+        emitf("movss %%xmm%d, %d(%%rbp)", i, -n->voffset);
+      } else {
+        emitf("movsd %%xmm%d, %d(%%rbp)", i, -n->voffset);
       }
-      offset += 8;
     }
 
     vector_free(iregs);
@@ -1282,8 +1302,8 @@ static void emit_function(parse_t *parse, node_t *node) {
         n->voffset = offset;
         switch (n->type->bytes) {
         case 1:
-        emitf("movl %%%s, %%eax", MREGS[iargs++]);
-        emitf("movb %%al, %d(%%rbp)", -n->voffset);
+          emitf("movl %%%s, %%eax", MREGS[iargs++]);
+          emitf("movb %%al, %d(%%rbp)", -n->voffset);
           break;
         case 2:
           emitf("movl %%%s, %%eax", MREGS[iargs++]);
@@ -1293,7 +1313,7 @@ static void emit_function(parse_t *parse, node_t *node) {
           emitf("movl %%%s, %d(%%rbp)", MREGS[iargs++], -n->voffset);
           break;
         case 8:
-          emitf("mov %%%s, %d(%%rbp)", REGS[iargs++], -n->voffset);
+          emitf("movq %%%s, %d(%%rbp)", REGS[iargs++], -n->voffset);
           break;
         default:
           errorf("invalid variable type");
@@ -1430,70 +1450,99 @@ static void emit_data_section(parse_t *parse) {
 static void emit_builtin_va_start(parse_t *parse, node_t *node) {
   assert(parse->current_function != NULL);
   assert(node->args->size == 1);
-  node_t *ap = (node_t *)node->args->data[0];
 
-  if (ap->type->kind != TYPE_KIND_PTR && ap->type->kind != TYPE_KIND_ARRAY) {
-    errorf("ap type expected pointer type");
-  }
-
+  int gp = 0, fp = 0;
   vector_t *argtypes = parse->current_function->fvar->type->argtypes;
-  type_t *type = ap->type->parent;
-  int gnum = 0, fnum = 0;
 
   for (int i = 0; i < argtypes->size; i++) {
     type_t *t = (type_t *)argtypes->data[i];
     if (type_is_float(t)) {
-      fnum = min(fnum + 1, 8);
-    } else if (!type_is_struct(t)) {
-      gnum = min(gnum + 1, 6);
+      fp++;
+    } else {
+      gp++;
     }
   }
 
-  emit_push(parse, "rcx");
-  emit_expression(parse, ap);
-  emitf("mov %%rax, %%rcx");
+  node_t *arg0 = (node_t *)node->args->data[0];
+  // emit_expression(parse, arg0);
+  // emit_push(parse, "rcx");
+  emitf("movl $%d, %d(%%rbp)", gp * 8, -arg0->voffset);
+  emitf("movl $%d, %d(%%rbp)", 48 + fp * 16, -arg0->voffset + 4);
+  emitf("leaq 16(%%rbp), %%rax");
+  emitf("movq %%rax, %d(%%rbp)", -arg0->voffset + 8);
+  emitf("leaq %d(%%rbp), %%rax", -172);
+  emitf("movq %%rax, %d(%%rbp)", -arg0->voffset + 16);
 
-  // gp_offset
-  {
-    map_entry_t *e = map_find(type->fields, "gp_offset");
-    if (e == NULL) {
-      errorf("no member named 'gp_offset' in '%s'", type->name);
-    }
-    node_t *var = (node_t *)e->val;
-    emitf("movl $%d, %d(%%rcx)", 8 * gnum, var->voffset);
-  }
-  // fp_offset
-  {
-    map_entry_t *e = map_find(type->fields, "fp_offset");
-    if (e == NULL) {
-      errorf("no member named 'fp_offset' in '%s'", type->name);
-    }
-    node_t *var = (node_t *)e->val;
-    emitf("movl $%d, %d(%%rcx)", 8 * 6 + 8 * fnum, var->voffset);
-  }
-  // reg_save_area
-  {
-    map_entry_t *e = map_find(type->fields, "reg_save_area");
-    if (e == NULL) {
-      errorf("no member named 'reg_save_area' in '%s'", type->name);
-    }
-    node_t *var = (node_t *)e->val;
-    int base_offset = 8 * (6 + 8);
-    emitf("lea %d(%%rbp), %%rax", -base_offset);
-    emitf("mov %%rax, %d(%%rcx)", var->voffset);
-  }
-  // overflow_arg_area
-  {
-    map_entry_t *e = map_find(type->fields, "overflow_arg_area");
-    if (e == NULL) {
-      errorf("no member named 'overflow_arg_area' in '%s'", type->name);
-    }
-    node_t *var = (node_t *)e->val;
-    emitf("lea %d(%%rbp), %%rax", 16);
-    emitf("mov %%rax, %d(%%rcx)", var->voffset);
-  }
+  // emitf("mov %d(%%rbp), %%rax", -arg0->voffset);
+  // emitf("movl $%d, (%%rax)", gp * 8);
+  // emitf("movl $%d, 4(%%rax)", 48 + fp * 16);
+  // emitf("mov %%rbp, 16(%%rax)");
+  // emitf("subq $128, 16(%%rax)");
 
-  emit_pop(parse, "rcx");
+  // node_t *ap = (node_t *)node->args->data[0];
+
+  // if (ap->type->kind != TYPE_KIND_PTR && ap->type->kind != TYPE_KIND_ARRAY) {
+  //   errorf("ap type expected pointer type");
+  // }
+
+  // vector_t *argtypes = parse->current_function->fvar->type->argtypes;
+  // type_t *type = ap->type->parent;
+  // int gnum = 0, fnum = 0;
+
+  // for (int i = 0; i < argtypes->size; i++) {
+  //   type_t *t = (type_t *)argtypes->data[i];
+  //   if (type_is_float(t)) {
+  //     fnum = min(fnum + 1, 8);
+  //   } else if (!type_is_struct(t)) {
+  //     gnum = min(gnum + 1, 6);
+  //   }
+  // }
+
+  // emit_push(parse, "rcx");
+  // emit_expression(parse, ap);
+  // emitf("mov %%rax, %%rcx");
+
+  // // gp_offset
+  // {
+  //   map_entry_t *e = map_find(type->fields, "gp_offset");
+  //   if (e == NULL) {
+  //     errorf("no member named 'gp_offset' in '%s'", type->name);
+  //   }
+  //   node_t *var = (node_t *)e->val;
+  //   emitf("movl $%d, %d(%%rcx)", 8 * gnum, var->voffset);
+  // }
+  // // fp_offset
+  // {
+  //   map_entry_t *e = map_find(type->fields, "fp_offset");
+  //   if (e == NULL) {
+  //     errorf("no member named 'fp_offset' in '%s'", type->name);
+  //   }
+  //   node_t *var = (node_t *)e->val;
+  //   emitf("movl $%d, %d(%%rcx)", 8 * 6 + 8 * fnum, var->voffset);
+  // }
+  // // reg_save_area
+  // {
+  //   map_entry_t *e = map_find(type->fields, "reg_save_area");
+  //   if (e == NULL) {
+  //     errorf("no member named 'reg_save_area' in '%s'", type->name);
+  //   }
+  //   node_t *var = (node_t *)e->val;
+  //   int base_offset = 8 * (6 + 8);
+  //   emitf("lea %d(%%rbp), %%rax", -base_offset);
+  //   emitf("mov %%rax, %d(%%rcx)", var->voffset);
+  // }
+  // // overflow_arg_area
+  // {
+  //   map_entry_t *e = map_find(type->fields, "overflow_arg_area");
+  //   if (e == NULL) {
+  //     errorf("no member named 'overflow_arg_area' in '%s'", type->name);
+  //   }
+  //   node_t *var = (node_t *)e->val;
+  //   emitf("lea %d(%%rbp), %%rax", 16);
+  //   emitf("mov %%rax, %d(%%rcx)", var->voffset);
+  // }
+
+  // emit_pop(parse, "rcx");
 }
 
 void gen(parse_t *parse) {
