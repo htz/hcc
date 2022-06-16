@@ -377,7 +377,7 @@ retry:
     if (strcmp("const", token->identifier) == 0) {
       return new_keyword(lex, TOKEN_KEYWORD_CONST);
     }
-    if (strcmp("__typecode", token->identifier) == 0) {
+    if (strcmp("__builtin_typecode", token->identifier) == 0) {
       return new_keyword(lex, TOKEN_KEYWORD_TYPECODE);
     }
     return token;

@@ -18,21 +18,22 @@ static void test_type() {
 }
 
 static void test_typecode() {
-  expect(0, __typecode(void));
-  expect(1, __typecode(_Bool));
-  expect(2, __typecode(char));
-  expect(3, __typecode(short));
-  expect(4, __typecode(int));
-  expect(5, __typecode(long));
-  expect(6, __typecode(long long));
-  expect(7, __typecode(float));
-  expect(8, __typecode(double));
-  expect(9, __typecode(long double));
-  expect(10, __typecode(void*));
-  expect(11, __typecode(int[10]));
-  expect(12, __typecode(struct{int a;}));
-  // expect(13, __typecode(enum{a}));
-  expect(14, __typecode(void ()()));
+  expect(0, __builtin_typecode(void));
+  expect(1, __builtin_typecode(_Bool));
+  expect(2, __builtin_typecode(char));
+  expect(3, __builtin_typecode(short));
+  expect(4, __builtin_typecode(int));
+  expect(5, __builtin_typecode(long));
+  expect(6, __builtin_typecode(long long));
+  expect(7, __builtin_typecode(float));
+  expect(8, __builtin_typecode(double));
+  expect(9, __builtin_typecode(long double));
+  expect(10, __builtin_typecode(void*));
+  expect(11, __builtin_typecode(int[10]));
+  expect(12, __builtin_typecode(struct{int a;}));
+  // expect(13, __builtin_typecode(enum{a}));
+  expect(14, __builtin_typecode(void ()()));
+}
 }
 
 static void test_signed() {
