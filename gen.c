@@ -1435,7 +1435,7 @@ static void emit_builtin_va_start(parse_t *parse, node_t *node) {
   assert(parse->current_function != NULL);
   assert(node->args->size == 1);
 
-  int gp = 0, fp = 0, last_offset = 0;
+  int gp = 0, fp = 0, last_offset = 8 * 6 + 16 * 8;
   vector_t *fargs = parse->current_function->fargs;
 
   for (int i = 0; i < fargs->size; i++) {
