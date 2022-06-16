@@ -1200,6 +1200,19 @@ static node_t *unary_expression(parse_t *parse) {
     }
     cpp_expect_keyword_is(parse, ')');
     return node_new_int(parse, parse->type_int, type->kind);
+  } else if (cpp_next_keyword_is(parse, TOKEN_KEYWORD_TYPECODE_COMPARE)) {
+    cpp_expect_keyword_is(parse, '(');
+    type_t *type1 = type_name(parse);
+    if (type1 == NULL) {
+      errorf("type expected");
+    }
+    cpp_expect_keyword_is(parse, ',');
+    type_t *type2 = type_name(parse);
+    if (type2 == NULL) {
+      errorf("type expected");
+    }
+    cpp_expect_keyword_is(parse, ')');
+    return node_new_int(parse, parse->type_int, type1->kind == type2->kind ? 1 : 0);
   }
   return postfix_expression(parse);
 }

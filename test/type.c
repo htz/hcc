@@ -34,6 +34,19 @@ static void test_typecode() {
   // expect(13, __builtin_typecode(enum{a}));
   expect(14, __builtin_typecode(void ()()));
 }
+
+static void test_typecode_compare() {
+  expect(1, __builtin_typecode_compare(void, void));
+  expect(1, __builtin_typecode_compare(_Bool, _Bool));
+  expect(1, __builtin_typecode_compare(char, char));
+  expect(1, __builtin_typecode_compare(short, short));
+  expect(1, __builtin_typecode_compare(int, int));
+  expect(1, __builtin_typecode_compare(long, long));
+  expect(1, __builtin_typecode_compare(long long, long long));
+  expect(1, __builtin_typecode_compare(float, float));
+  expect(1, __builtin_typecode_compare(double, double));
+  expect(1, __builtin_typecode_compare(long double, long double));
+  expect(1, __builtin_typecode_compare(void*, void*));
 }
 
 static void test_signed() {
@@ -118,6 +131,7 @@ static void test_extern() {
 void testmain() {
   test_type();
   test_typecode();
+  test_typecode_compare();
   test_signed();
   test_unsigned();
   test_pointer();

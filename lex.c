@@ -380,6 +380,9 @@ retry:
     if (strcmp("__builtin_typecode", token->identifier) == 0) {
       return new_keyword(lex, TOKEN_KEYWORD_TYPECODE);
     }
+    if (strcmp("__builtin_typecode_compare", token->identifier) == 0) {
+      return new_keyword(lex, TOKEN_KEYWORD_TYPECODE_COMPARE);
+    }
     return token;
   }
   switch (c) {
