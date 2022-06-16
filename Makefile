@@ -11,7 +11,7 @@ TESTS := $(patsubst %.c,%.out,$(filter-out test/testmain.c, $(wildcard test/*.c)
 all: ${PROG}
 
 ${PROG}: ${OBJS}
-	${CC} -o $@ ${OBJS} ${CFLAGS}
+	${CC} ${CFLAGS} -o $@ $^
 
 %.o: %.c
 	${CC} $< -MM -MP -MF $*.d ${CFLAGS}
@@ -28,7 +28,7 @@ test/%.s: test/%.c ${PROG}
 	./${PROG} < $< > $@
 
 test/%.out: test/%.s test/testmain.c ${PROG}
-	@$(CC) $(CFLAGS) -no-pie -o $@ $< test/testmain.c
+	@${CC} ${CFLAGS} -no-pie -o $@ $< test/testmain.c
 
 .PHONY: clean
 clean:
