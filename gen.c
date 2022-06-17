@@ -1203,27 +1203,19 @@ static void emit_function(parse_t *parse, node_t *node) {
   emit_push(parse, "rbp");
   emitf("mov %%rsp, %%rbp");
 
-  // reset all fargs offsets to -1
-  for (int i = 0; i < node->fargs->size; i++) {
-    node_t *n = (node_t *)node->fargs->data[i];
-    n->voffset = -1;
-  }
-
   vector_t *iregs = vector_new();
   vector_t *xregs = vector_new();
-  int offset = 0, spoffset = 16;
+  vector_t *stack = vector_new();
+  int offset = 0;
 
   for (int i = 0; i < node->fargs->size; i++) {
     node_t *n = (node_t *)node->fargs->data[i];
-    if (type_is_struct(n->type)) {
-      continue;
-    }
-    if (type_is_float(n->type)) {
-      if (xregs->size < 8) {
-        vector_push(xregs, n);
-      }
-    } else if (iregs->size < 6) {
+    if (type_is_float(n->type) && xregs->size < 8) {
+      vector_push(xregs, n);
+    } else if (!type_is_struct(n->type) && iregs->size < 6) {
       vector_push(iregs, n);
+    } else {
+      vector_push(stack, n);
     }
   }
 
@@ -1286,12 +1278,10 @@ static void emit_function(parse_t *parse, node_t *node) {
       errorf("invalid variable type");
     }
   }
-  // fix other fargs positions
-  for (int i = 0; i < node->fargs->size; i++) {
-    node_t *n = (node_t *)node->fargs->data[i];
-    if (n->voffset != -1) {
-      continue;
-    }
+  // fix stack fargs positions
+  int spoffset = 16;
+  for (int i = 0; i < stack->size; i++) {
+    node_t *n = (node_t *)stack->data[i];
     if (type_is_float(n->type)) {
       n->voffset = -spoffset;
       spoffset += 8;
@@ -1305,8 +1295,10 @@ static void emit_function(parse_t *parse, node_t *node) {
       spoffset += 8;
     }
   }
+
   vector_free(iregs);
   vector_free(xregs);
+  vector_free(stack);
 
   offset = placement_variables(node->fbody, offset);
   align(&offset, 8);
